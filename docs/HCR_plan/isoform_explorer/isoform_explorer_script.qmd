@@ -1,0 +1,2657 @@
+---
+title: "RNA structure"
+format: html
+editor_options: 
+  chunk_output_type: console
+---
+
+# DROSOPHILA MELANOGASTER
+
+* Get constitutive coordinates of Dmel transcript isoforms that will be used for genome-wide probe design.
+* Use bedtools type approach on GTF file. 
+
+> To do
+
+* How to deal with overlapping genes on the same strand?
+
+## Environment
+
+```{r}
+library(tidyverse)
+library(valr)
+library(furrr)
+library(qs)
+library(patchwork)
+
+plan(multisession, workers = 8)
+
+release_version <- 113
+
+```
+
+## Process GTF
+
+### Get GTF and prepare an annotated list per protein-coding and non-coding genes
+
+* Using the latest ENSEMBL **release 113** version
+* ENSEMBL GTF is 1-based (use default read_gtf() option to convert automatically to 0-based coordinates)
+
+```{r}
+## Download gtf
+release_version <- 113
+gtf_file <- biomartr::getGTF(
+  db = "ensembl",
+  organism = "Drosophila melanogaster",
+  path = tempdir(),
+  release = release_version
+)
+
+## import gtf
+gtf <- read_gtf(gtf_file) %>%
+  filter(str_detect(gene_id, "FBgn"))
+head(gtf)
+
+## prepare tx2gene file
+t2g <- gtf %>%
+  dplyr::select(gene_id, transcript_id) %>%
+  filter(!is.na(gene_id)) %>%
+  filter(!is.na(transcript_id)) %>%
+  distinct()
+
+write_csv(t2g, paste0("./GENOMEDIR/Dmel_ensembl_v", release_version,"_tx2gene.csv"))
+
+## filter for protein coding and ncRNA
+gtf_pcnc <- gtf %>% 
+  filter(gene_biotype %in% c("protein_coding", "ncRNA"))
+
+## how many genes have both +/- strand attributes? - FBgn0002781 mod(mdg4) is the only one. Ignore this outlier exon.
+## This is not present in the latest v113 version
+strand_test_df <- gtf_pcnc %>%
+  filter(type == "exon") %>%
+  group_by(gene_id) %>%
+  summarise(strand = unique(strand) %>% sort() %>% paste0(collapse = ""))
+
+gtf_pcnc <- gtf_pcnc %>%
+  filter(!(gene_id == "FBgn0002781" & strand == "+"))
+
+## create a list for each gene
+pcnc_list <- gtf_pcnc %>%
+  split(gtf_pcnc$gene_id)
+
+## create a filtered list of exons
+pcnc_exon_list <- pcnc_list %>%
+  future_imap(~{
+    exon_intervals <- .x %>% filter(type == "exon")
+    isoform_count <- unique(exon_intervals$transcript_id) %>% length()
+    strand <- unique(exon_intervals$strand) %>% unique()
+    
+    output <- list(
+      gene_id = .y,
+      gene_name = unique(exon_intervals$gene_name),
+      gene_biotype = unique(exon_intervals$gene_biotype),
+      exon_intervals = exon_intervals,
+      isoform_count = isoform_count,
+      strand = strand
+    )
+    
+    return(output)
+  }, .progress = TRUE)
+
+## save the list 
+qsave(pcnc_exon_list, paste0("./data/RNA-structure/Dmel/Dmel_ensembl_v",
+                             release_version,
+                             "_proteincoding_noncoding_exon_list.qs")
+)
+
+## distribution of transcript isoform count per gene
+pcnc_exon_list <- qread("./data/RNA-structure/Dmel/Dmel_ensembl_v113_proteincoding_noncoding_exon_list.qs")
+
+isoform_count_df <- pcnc_exon_list %>%
+  future_imap_dfr(~{
+    tibble(
+      gene_name = pluck(.x, "gene_name"),
+      gene_biotype = pluck(.x, "gene_biotype"),
+      isoform_count = pluck(.x, "isoform_count")
+      )
+  }, .id = "gene_id")
+
+if(!dir.exists("./data/RNA-structure/Dmel/plots")){
+  dir.create("./data/RNA-structure/Dmel/plots")
+}
+
+isoform_count_df %>%
+  ggplot(aes(x = isoform_count)) + 
+  geom_histogram(bins = 50) + 
+  scale_y_log10() + 
+  labs(title = "Number of tx isoforms per gene") + 
+  facet_wrap(~ gene_biotype) + 
+  theme_bw(base_size = 15)
+
+ggsave("./data/RNA-structure/Dmel/plots/plot_tx-isoform-count-per-gene.pdf")
+
+```
+
+### Find constitutive intervals for multi-isoform transcripts
+
+#### set up bedtools environment
+
+* My conda env has bedtools 2.31.1, whereas bedtoolsr is built for 2.30.0 - just in case there are syntax errors...
+
+```{r}
+library(bedtoolsr)
+
+conda_bedtools_bin <- "/opt/miniconda3/envs/bedtools/bin" # find this directory
+Sys.setenv(PATH = paste(Sys.getenv("PATH"), conda_bedtools_bin, sep = .Platform$path.sep))
+Sys.getenv("PATH")
+Sys.which("bedtools")
+```
+
+#### find multi-intersecting regions 
+
+```{r}
+##
+pcnc_exon_list <- qread("./data/RNA-structure/Dmel/Dmel_ensembl_v113_proteincoding_noncoding_exon_list.qs") 
+
+## find constitutive regions and create a list
+pcnc_constitutive_list <- pcnc_exon_list %>%
+  map(~{
+    if(.x$isoform_count > 1){
+      ## multiinter output
+      multiinter_output <- pluck(.x, "exon_intervals") %>%
+        split(.$transcript_id) %>%
+        map(valr::bed_sort) %>%
+        bedtoolsr::bt.multiinter(header = TRUE, names = paste(names(.), collapse = " ")) %>% 
+        as_tibble() %>%
+        janitor::row_to_names(row_number = 1) %>%
+        mutate(across(c(start, end, num), as.numeric)) %>%
+        mutate(strand = pluck(.x, "strand")) %>%
+        mutate(width = end - start) %>%
+        dplyr::select(chrom, start, end, width, strand, everything())
+      
+      .x$multiinter_output <- multiinter_output
+      
+      ## constitutive intervals
+      constitutive_intervals <- multiinter_output %>%
+        filter(num == pluck(.x, "isoform_count")) %>%
+        dplyr::select(chrom, start, end, width, strand)
+      
+      .x$constitutive_intervals <- constitutive_intervals
+      
+      ## does constitutive intervals exist
+      .x$constitutive_exist <- ifelse(nrow(constitutive_intervals) > 0, TRUE, FALSE)
+      
+      ## length of constitutive intervals
+      .x$constitutive_length <- ifelse(
+        nrow(constitutive_intervals) == 0,
+        0,
+        sum(constitutive_intervals$width)
+      )
+      
+      return(.x)
+      
+    } else if(.x$isoform_count == 1){
+      .x$multiinter_output <- pluck(.x, "exon_intervals") %>%
+        mutate(num = 1) %>%
+        dplyr::select(chrom, start, end, width, strand, num, "list" = transcript_id)
+      
+      .x$constitutive_intervals <- pluck(.x, "exon_intervals") %>%
+        dplyr::select(chrom, start, end, width, strand)
+      
+      .x$constitutive_exist <- TRUE
+      
+      .x$constitutive_length <- pluck(.x, "exon_intervals") %>%
+        pull(width) %>% sum()
+      
+      return(.x)
+      
+    }
+  }, .progress = TRUE)
+
+## save output
+qsave(pcnc_constitutive_list, paste0("./data/RNA-structure/Dmel/Dmel_ensembl_v",
+                                     release_version,
+                                     "_proteincoding_noncoding_constitutive-region_list.qs")
+)
+
+```
+
+
+## Extract RNA sequences 
+
+### Download FASTA file
+
+```{r}
+release_version
+
+fasta_file <- biomartr::getGenome(
+  db = "ensembl",
+  organism = "Drosophila melanogaster",
+  release = release_version,
+  gunzip = TRUE,
+  path = tempdir(),
+)
+
+```
+
+### Get transcript sequences of constitutive regions
+
+```{r}
+## constitutive list
+pcnc_constitutive_list <- qread("./data/RNA-structure/Dmel/Dmel_ensembl_v",
+                                release_version,
+                                "_proteincoding_noncoding_constitutive-region_list.qs")
+
+# bed_example <- pcnc_constitutive_list$"FBgn0025790"$constitutive_intervals %>%
+#   dplyr::mutate(name = str_c(chrom, start, end, strand, sep = ":")) %>%
+#   dplyr::select(chrom, start, end, name, "score" = width, strand)
+
+# bt.getfasta(
+#   fi = "~/Documents/Data/GENOMEDIR/Dmel/Drosophila_melanogaster.BDGP6.28.dna.toplevel.fa",
+#   bed = pcnc_constitutive_list$"FBgn0025790"$constitutive_intervals,
+#   bedOut = TRUE,
+#   s = NULL
+# )
+
+# bt.getfasta(
+#   fi = "~/Documents/Data/GENOMEDIR/Dmel/Drosophila_melanogaster.BDGP6.28.dna.toplevel.fa",
+#   bed = bed_example,
+#   bedOut = TRUE,
+#   s = TRUE
+# )
+
+pcnc_constitutive_list[[312]]
+
+## get fasta sequence, arrange order depending on the strand, and add character counts with "N"
+pcnc_constitutive_seq_list <- pcnc_constitutive_list %>%
+  map(~ {
+    if (.x$constitutive_exist == TRUE) {
+      bed_touse <- .x$constitutive_intervals %>%
+        dplyr::mutate(name = str_c(chrom, start, end, strand, sep = ":")) %>%
+        dplyr::select(chrom, start, end, name, "score" = width, strand)
+
+      getfasta_output <- bedtoolsr::bt.getfasta(
+        fi = fasta_file,
+        bed = bed_touse,
+        bedOut = TRUE,
+        s = TRUE
+      ) %>%
+        as_tibble() %>%
+        setNames(c("chrom", "start", "end", "name", "width", "strand", "seq")) %>%
+        dplyr::select(-name) %>%
+        dplyr::arrange(if (.x$strand == "+") start else desc(start)) %>%
+        mutate(nchar_plus_N_cumsum = cumsum(width + 1))
+
+      .x$constitutive_sequence_df <- getfasta_output
+      return(.x)
+    } else {
+      .x$constitutive_sequence_df <- tibble(
+        chrom = character(),
+        start = numeric(),
+        end = numeric(),
+        width = numeric(),
+        strand = character(),
+        seq = character(),
+        nchar_plus_N_cumsum = numeric()
+      )
+      return(.x)
+    }
+  }, .progress = TRUE)
+
+## get concatenated target sequence collapsed for "N"
+pcnc_constitutive_seq_list <- pcnc_constitutive_seq_list %>%
+  map(~ {
+    if (.x$constitutive_exist == TRUE) {
+      constitutive_seq_Ncollapsed <- .x$constitutive_sequence_df %>%
+        pull(seq) %>%
+        paste0(collapse = "N")
+      .x$constitutive_seq_Ncollapsed <- constitutive_seq_Ncollapsed
+      return(.x)
+    } else {
+      .x$constitutive_seq_Ncollapsed <- NULL
+      return(.x)
+    }
+  }, .progress = TRUE)
+
+pcnc_constitutive_seq_list[[300]]
+
+## save 
+pcnc_constitutive_seq_list %>%
+  qsave(paste0("./data/RNA-structure/Dmel/Dmel_ensembl_v",
+               release_version,
+               "_proteincoding_noncoding_constitutive-sequence_list.qs")
+  )
+
+```
+
+## Exploring the constitutive region dataset
+
+### Summary of isoform constitutive mappings
+
+```{r}
+pcnc_constitutive_seq_list <- 
+  qread(paste0("./data/RNA-structure/Dmel/Dmel_ensembl_v",
+               release_version,
+               "_proteincoding_noncoding_constitutive-sequence_list.qs")
+  )
+
+## Summary dataframe
+pcnc_constitutive_summary_df <- pcnc_constitutive_seq_list %>%
+  imap_dfr(~{
+    tibble(
+      gene_id = .x$gene_id,
+      gene_name = .x$gene_name,
+      gene_biotype = .x$gene_biotype,
+      strand = .x$strand,
+      isoform_count = .x$isoform_count,
+      constitutive_exist = .x$constitutive_exist,
+      constitutive_length = .x$constitutive_length,
+      constitutive_seq_Ncollapsed = ifelse(is.null(.x$constitutive_seq_Ncollapsed), 
+                                           "NA", 
+                                           as.character(.x$constitutive_seq_Ncollapsed))
+    )
+  }, .progress = TRUE) %>%
+  mutate(constitutive_exist_over_500 = if_else(constitutive_length > 500, TRUE, FALSE)) %>%
+  mutate(constitutive_exist_over_2k = if_else(constitutive_length > 2000, TRUE, FALSE))
+
+write_csv(pcnc_constitutive_summary_df, paste0("./data/RNA-structure/Dmel/Dmel_ensembl_v",
+                                               release_version,
+                                               "_proteincoding_noncoding_constitutive-sequence_summary.csv")
+)
+
+## Summary plots
+pcnc_constitutive_summary_df %>%
+  ggplot(aes(x = gene_biotype, fill = constitutive_exist_over_500)) +
+  geom_bar(position = position_stack()) + 
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_stack(), vjust = -0.5) + 
+  labs(title = "Constitutive sequence over 500nt exist?") + 
+  theme_bw(base_size = 15) 
+
+ggsave("./data/RNA-structure/Dmel/plots/plot_constitutive-length-over-500nt.pdf")
+
+pcnc_constitutive_summary_df %>%
+  ggplot(aes(x = gene_biotype, fill = constitutive_exist_over_2k)) +
+  geom_bar(position = position_stack()) + 
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_stack(), vjust = -0.5) + 
+  labs(title = "Constitutive sequence over 2000nt exist?") + 
+  theme_bw(base_size = 15) 
+
+ggsave("./data/RNA-structure/Dmel/plots/plot_constitutive-length-over-2000nt.pdf")
+
+pcnc_constitutive_summary_df %>%
+  ggplot(aes(x = constitutive_length)) +
+  geom_histogram() + 
+  scale_x_log10() +
+  facet_wrap(~ constitutive_exist + gene_biotype) +
+  labs(title = "Have constitutive sequence?") + 
+  theme_bw(base_size = 15)
+
+ggsave("./data/RNA-structure/Dmel/plots/plot_constitutive-length-histogram.pdf")
+
+pcnc_constitutive_summary_df %>% summary()
+
+```
+
+### Plotting transcript architecture
+
+```{r}
+pcnc_constitutive_seq_list <- 
+  qread(paste0("./data/RNA-structure/Dmel/Dmel_ensembl_v",
+               release_version,
+               "_proteincoding_noncoding_constitutive-sequence_list.qs")
+  )
+
+## helper function
+plot_isoforms <- function(list_element){
+  list_element$exon_intervals %>% ggplot() +
+      geom_segment(
+        aes(x = min(list_element$exon_intervals$start), 
+            xend = max(list_element$exon_intervals$end), 
+            y = transcript_id, 
+            yend = transcript_id),
+        linewidth = 0.5, colour = "gray80"
+      ) +
+      geom_segment(
+        data = list_element$exon_intervals,
+        aes(x = start, xend = end, y = transcript_id, yend = transcript_id),
+        linewidth = 3, colour = "gray30",
+        inherit.aes = FALSE
+      ) +
+      geom_segment(
+        data = list_element$constitutive_intervals, 
+        aes(x = start, xend = end, y = "CONSTITUTIVE", yend = "CONSTITUTIVE"),
+        linewidth = 7, colour = "coral", 
+        inherit.aes = FALSE
+      ) + 
+      labs(
+        title = paste0(
+          list_element$gene_id, " ", 
+          list_element$gene_name, " ", 
+          list_element$strand, "ve strand ",
+          paste0("(constitutive ", list_element$constitutive_length, "nt)")
+        ),
+        x = "Chromosomal coordinate",
+        y = "Transcript ID"
+      ) + 
+      theme_bw()
+}
+
+## Explore some plots
+library(patchwork)
+
+pcnc_constitutive_seq_list %>%
+  purrr::keep(~ .x$gene_name %in% c("pros", "Syp", "Pdf", "dlg1")) %>%
+  map(plot_isoforms) %>%
+  wrap_plots()
+
+ggsave("./data/RNA-structure/Dmel/plots/plot_constitutive_txplot-example.pdf", width = 12, height = 9)
+
+pcnc_constitutive_seq_list %>%
+  purrr::keep(~.x$gene_name == "Myc") %>%
+  pluck(1) %>%
+  plot_isoforms()
+  
+```
+
+### Retrieving constitutive sequence of a gene 
+
+```{r}
+pcnc_constitutive_seq_list <- 
+  qread(paste0("./data/RNA-structure/Dmel/Dmel_ensembl_v",
+               release_version,
+               "_proteincoding_noncoding_constitutive-sequence_list.qs")
+  )
+
+gene_id <- "FBgn0262656"
+output_fasta_path <- "~/Desktop/Myc.fa"
+
+fasta_lines <- c(
+  paste(
+   ">", gene_id, 
+   pluck(pcnc_constitutive_seq_list, gene_id) %>% pluck("gene_name"),  
+   "RNA isoform-constitutive sequence (N collapsed)" 
+  ),
+  pluck(pcnc_constitutive_seq_list, gene_id) %>% pluck("constitutive_seq_Ncollapsed")
+)
+
+write_lines(fasta_lines, output_fasta_path)
+
+```
+
+
+## Find candidate genes for initial testing
+
+### Brain expression
+
+#### samuels 2020 L3 brain RNA-seq (ensembl 99)
+
+```{r}
+# list.files("~/Documents/Data/sequencing/RNA-seq/samuels2020/")
+# 
+# raw <- list.dirs("~/Documents/Data/sequencing/RNA-seq/samuels2020/", recursive = FALSE) %>%
+#   set_names() %>%
+#   map(~{
+#     list.files(.x, pattern = "*.tsv", full.names = TRUE)
+#   }) %>%
+#   map_dfr(~{
+#     read_tsv(.x) %>%
+#       dplyr::select(target_id, tpm)
+#     }) %>%
+#   group_by(target_id) %>%
+#   summarise(tpm = mean(tpm, na.rm = TRUE)) %>%
+#   ungroup() %>%
+#   mutate(target_id = str_replace(target_id, "-I\\.[:digit:]+", "")) %>%
+#   group_by(target_id) %>%
+#   summarise(tpm = sum(tpm))
+# 
+# ens99_t2g <- read_csv("~/Documents/LCLIP/GENOMEDIR/Dmel_tx2gene_ENSEMBL_v99.csv")
+# 
+# l3brain_tpm <- ens99_t2g %>%
+#   left_join(raw, by = c("tx_id" = "target_id")) %>%
+#   dplyr::select(-tx_id) %>%
+#   group_by(gene_id, gene_name, gene_biotype) %>%
+#   summarise(tpm = sum(tpm))
+# 
+# l3brain_tpm %>%
+#   write_csv("~/Documents/Data/sequencing/RNA-seq/samuels2020/samuels2020_l3brain_orr_rna-seq_tpm.csv")
+
+```
+
+
+#### dillon 2022 scRNA-seq (ensembl 99)
+
+```{r}
+library(Seurat)
+dillon_atlas <- readRDS("~/Documents/Data/sequencing/scRNA-seq/dillon2022/RDS_files/atlas_combined_annotated.rds")
+
+dillon_progenitors_clusters_vector <- c(7,11,32,33,42,6,14,1,40,41,20,24,16,17,47,15)
+dillon_glia_clusters_vector <- c('9','19','25','26','29','36','37','44') %>% as.double()
+dillon_neurons_clusters_vector <- c(0,2,3,4,5,8,10,12,13,18,21,22,23,28,27,30,34,35,39,46,48,50,51,52,53)
+
+dillon_atlas@meta.data <- dillon_atlas@meta.data %>%
+  mutate(broad_celltype = case_when(
+    seurat_clusters %in%dillon_progenitors_clusters_vector ~ "progentors",
+    seurat_clusters %in%dillon_glia_clusters_vector ~ "glia",
+    seurat_clusters %in%dillon_neurons_clusters_vector ~ "neurons",
+    TRUE ~ "NA"
+  )
+  )
+
+dillon_atlas <- subset(dillon_atlas, broad_celltype != "NA")
+dillon_atlas@meta.data$orig.ident <- dillon_atlas@meta.data$broad_celltype
+dillon_atlas %>% DimPlot(group.by = "orig.ident", reduction = "umap")
+
+dillon_atlas <- SetIdent(dillon_atlas, value = dillon_atlas@meta.data$broad_celltype)
+dillon_atlas@active.ident
+
+## find markers
+broad_markers <- FindAllMarkers(
+  object = dillon_atlas, 
+  assay = "RNA", 
+  logfc.threshold = 0.1, 
+  test.use = "wilcox",
+  min.pct = 0.1, 
+  min.diff.pct = 0.1, 
+  verbose = TRUE, 
+  return.thresh = 0.0501
+)
+
+write_csv(broad_markers, "./data/RNA-structure/Dmel/tissue_expression/dillon2022_larval-brain_all-markers.csv")
+
+## curate best markers
+brain_markers_curated <- broad_markers %>%
+  as_tibble() %>%
+  dplyr::select("gene_name" = gene, everything()) %>%
+  filter(avg_log2FC > 1 & p_val_adj < 0.01) %>%
+  group_by(cluster) %>%
+  dplyr::slice_max(order_by = avg_log2FC, n = 100) %>% ungroup()
+
+nonoverlapping_markers <- brain_markers_curated %>%
+  group_by(gene_name) %>%
+  summarise(n = n()) %>%
+  arrange(desc(n)) %>%
+  filter(n == 1) %>% pull(gene_name)
+
+brain_markers_curated <- brain_markers_curated %>%
+  filter(gene_name %in% nonoverlapping_markers) %>%
+  dplyr::select(gene_name, "brain_marker" = cluster)
+
+##
+brain_tpm <- read_csv("~/Documents/Data/sequencing/RNA-seq/samuels2020/samuels2020_l3brain_orr_rna-seq_tpm.csv")
+
+brain_tpm_marker <- brain_tpm %>%
+  ungroup() %>%
+  left_join(brain_markers_curated) %>%
+  dplyr::select(-gene_biotype)
+
+brain_tpm_marker %>% write_csv("./data/RNA-structure/Dmel/tissue_expression/larval_brain_tpm_marker.csv")
+
+```
+
+## Larval blood expression
+
+### Cho 2020 scRNA-seq
+
+* PH - prohemocytes
+* PM - plasmatocytes
+* LM - lamellocytes
+* CC - crystal cells
+
+#### find markers 
+
+```{r}
+library(Seurat)
+
+## only retain 4 major cell types
+obj <- readRDS("~/Documents/Data/sequencing/scRNA-seq/cho2020/allnew20210215_circulation.combined.indep_harmony.Rds")
+obj <- UpdateSeuratObject(obj)
+
+obj@meta.data$orig.ident <- obj@meta.data$celltype
+obj %>% DimPlot(group.by = "orig.ident", reduction = "tsne")
+
+obj <- SetIdent(obj, value = obj@meta.data$celltype)
+obj@active.ident
+
+celltype_interest <- c("PH", "PM", "LM", "CC") 
+obj_subset <- subset(obj, celltype %in% celltype_interest)
+
+obj_subset %>% DimPlot(group.by = "orig.ident", reduction = "tsne", label = TRUE, label.color = "black", label.box = TRUE)
+
+## find markers
+obj_all_markers <- FindAllMarkers(
+  object = obj_subset, 
+  assay = "RNA", 
+  logfc.threshold = 0.1, 
+  test.use = "wilcox",
+  min.pct = 0.1, 
+  min.diff.pct = 0.1, 
+  verbose = TRUE, 
+  return.thresh = 0.0501
+)
+
+write_csv(obj_all_markers, "./data/RNA-structure/Dmel/tissue_expression/cho2020_larval-blood_all-markers.csv")
+
+## curate best markers
+blood_markers_curated <- obj_all_markers %>%
+  as_tibble() %>%
+  dplyr::select("gene_name" = gene, everything()) %>%
+  filter(avg_log2FC > 1 & p_val_adj < 0.01) %>%
+  group_by(cluster) %>%
+  dplyr::slice_max(order_by = avg_log2FC, n = 100) %>% ungroup()
+
+nonoverlapping_markers <- blood_markers_curated %>%
+  group_by(gene_name) %>%
+  summarise(n = n()) %>%
+  arrange(desc(n)) %>%
+  filter(n == 1) %>% pull(gene_name)
+
+blood_markers_curated <- blood_markers_curated %>%
+  filter(gene_name %in% nonoverlapping_markers) %>%
+  dplyr::select(gene_name, "blood_marker" = cluster)
+
+```
+
+#### pseudobulk expression levels
+
+```{r}
+## get counts per million (cpm) df
+aggregate_expr <-  AggregateExpression(
+  obj_subset,
+  normalization.method = "RC",
+  scale.factor = 1
+) 
+
+cpm_df <- aggregate_expr$RNA %>% 
+  as.data.frame() %>%
+  rownames_to_column(var = "gene_name") %>%
+  mutate(count_sum = rowSums(across(where(is.numeric)))) %>%
+  dplyr::select(gene_name, count_sum) %>%
+  mutate(cpm = count_sum / sum(count_sum) * 1e6) %>%
+  as_tibble()
+
+## combine with markers
+blood_cpm_marker <- cpm_df %>%
+  dplyr::select(-count_sum) %>%
+  left_join(blood_markers_curated)
+
+blood_cpm_marker %>% write_csv("./data/RNA-structure/Dmel/tissue_expression/larval_blood_cpm_marker.csv")
+
+```
+
+
+### Find candidate genes based on brain/blood
+
+#### make a df with rna structure and brain/blood expression information
+
+```{r}
+##
+pcnc_constitutive_summary_df <- read_csv("./data/RNA-structure/Dmel/Dmel_ensembl_v113_proteincoding_noncoding_constitutive-sequence_summary.csv")
+
+##
+pcnc_constitutive_summary_df %>%
+  arrange(desc(constitutive_length)) %>%
+  slice_head(n = 10) %>%
+  pull(gene_name) 
+
+## add brain/blood dataset
+pcnc_constitutive_brain_blood <- pcnc_constitutive_summary_df %>%
+  left_join(brain_tpm_marker %>% dplyr::select(gene_id, "brain_tpm" = tpm, brain_marker)) %>%
+  left_join(blood_cpm_marker %>% dplyr::rename("blood_cpm" = cpm))
+
+pcnc_constitutive_brain_blood %>% write_csv("./data/RNA-structure/Dmel/small_scale_trial/pcnc_constitutive_brain_blood.csv")
+```
+
+#### selection purely on expression & length
+
+```{r}
+pcnc_constitutive_brain_blood <- read_csv("./data/RNA-structure/Dmel/small_scale_trial/pcnc_constitutive_brain_blood.csv")
+
+## does expression correlate btwn blood and brain?
+pcnc_constitutive_brain_blood %>%
+  filter(brain_tpm > 1e0 & blood_cpm > 1e0) %>% 
+  ggplot(aes(x = brain_tpm, y = blood_cpm)) + 
+  geom_point(
+    stroke = 0, alpha = 0.8, size = 1.2) + 
+  ggpubr::stat_cor(show.legend = FALSE) +
+  scale_x_log10(labels = scales::trans_format("log10", scales::math_format(10^.x))) + 
+  scale_y_log10(labels = scales::trans_format("log10", scales::math_format(10^.x))) + 
+  labs(
+    title = "Brain vs Blood expression correlation per gene",
+    x = "L3 brain (TPM, Transcripts per million)",
+    y = "L3 blood (CPM, Counts per million)"
+  ) +
+  theme_bw(base_size = 15)
+
+## does expression correlate with constitutive length?
+pcnc_constitutive_brain_blood %>%
+  ggplot(aes(x = brain_tpm, y = constitutive_length)) + 
+  geom_point(stroke = 0, alpha = 0.3) + 
+  ggpubr::stat_cor() +
+  scale_x_log10() + 
+  scale_y_log10() + 
+  labs(
+    title = "Brain expression vs constitutive length per gene",
+    x = "L3 brain (TPM)",
+    y = "Constitutive seq length (nt) log10"
+  ) +
+  theme_bw()
+
+pcnc_constitutive_brain_blood %>%
+  ggplot(aes(x = blood_cpm, y = constitutive_length)) + 
+  geom_point(stroke = 0, alpha = 0.3) + 
+  ggpubr::stat_cor() +
+  scale_x_log10() + 
+  scale_y_log10() + 
+  labs(
+    title = "Blood expression vs constitutive length per gene",
+    x = "L3 blood (CPM)",
+    y = "Constitutive seq length (nt) log10"
+  ) +
+  theme_bw()
+
+## How many genes can we recover?
+brain_tpm_min <- 40
+brain_tpm_max <- 500
+
+blood_cpm_min <- 50
+blood_cpm_max <- 1500
+
+constitutive_length_cutoff <- 2000
+
+pcnc_constitutive_brain_blood_expr_filt <- pcnc_constitutive_brain_blood %>%
+  filter(
+    brain_tpm > brain_tpm_min &
+    brain_tpm < brain_tpm_max &
+    blood_cpm > blood_cpm_min &
+    blood_cpm < blood_cpm_max 
+  ) %>%
+  filter(constitutive_length > constitutive_length_cutoff) %>%
+  arrange(desc(constitutive_length))
+pcnc_constitutive_brain_blood_expr_filt %>%
+  dplyr::select(-constitutive_seq_Ncollapsed) %>% 
+write_csv( "~/Desktop/pcnc_constitutive-isoform_blood_brain_filtered.csv")
+
+pcnc_constitutive_brain_blood_expr_filt %>%
+  {ggplot(data = ., aes(constitutive_length)) + 
+  geom_histogram() + labs(title = paste0(as.character(nrow(.)), " genes"))}
+
+pcnc_constitutive_brain_blood_expr_filt %>%
+  ggplot(aes(x = "", y = constitutive_length, label = gene_name, colour = blood_marker)) +
+  ggrepel::geom_text_repel(max.overlaps = 50, size = 6) +
+  facet_wrap(~blood_marker, nrow = 1) +
+  theme_bw(base_size = 15)
+
+pcnc_constitutive_brain_blood %>%
+  filter(brain_tpm > 1e0 & blood_cpm > 1e0) %>% 
+  ggplot(aes(x = brain_tpm, y = blood_cpm)) + 
+  geom_point(aes(colour = log10(constitutive_length)),
+    stroke = 0, alpha = 0.8, size = 1.2) + 
+  # ggpubr::stat_cor(show.legend = FALSE) +
+  geom_hline(yintercept = c(50, 1500)) + 
+  geom_vline(xintercept = c(40, 500)) +
+  scale_x_log10(labels = scales::trans_format("log10", scales::math_format(10^.x))) + 
+  scale_y_log10(labels = scales::trans_format("log10", scales::math_format(10^.x))) + 
+  labs(
+    title = "",
+    x = "L3 brain (TPM, Transcripts per million)",
+    y = "L3 blood (CPM, Counts per million)"
+  ) +
+  colorspace::scale_colour_continuous_sequential(palette = "inferno", rev = FALSE) +
+  # facet_wrap(~ constitutive_exist_over_2k) + 
+  theme_bw(base_size = 15) + 
+  theme(
+    legend.position = "none"
+  )
+
+```
+
+#### write broken down fasta per 1 kb
+
+* for testing with stellaris
+
+```{r}
+##
+pcnc_constitutive_summary_df <- read_csv("./data/RNA-structure/Dmel/Dmel_ensembl_v113_proteincoding_noncoding_constitutive-sequence_summary.csv")
+
+## function
+write_fasta_chunks <- function(gene_name, size, output_fasta_path){
+  constitutive_seq_Ncollapsed <- pcnc_constitutive_summary_df %>%
+    filter(!!gene_name == gene_name) %>%
+    pull(constitutive_seq_Ncollapsed)
+  
+  char_count <- nchar(constitutive_seq_Ncollapsed)
+  
+  # seqs <- str_extract_all(constitutive_seq_Ncollapsed, pattern = paste0('.{1,', size, '}'))
+  if((char_count / size)%%1==0){
+    seq1 <- seq(1, char_count, size)
+    seq2 <- seq(size, char_count, size)
+  } else {
+    seq1 <- seq(1, char_count, size)
+    seq2 <- c(seq(size, char_count, size), char_count)
+  }
+  
+  seqs <- substring(constitutive_seq_Ncollapsed, seq1, seq2)
+  
+  fasta_header_intermediate <- c(1: length(seqs)) 
+  fasta_headers <- paste(
+    ">", gene_name, fasta_header_intermediate, "of", length(fasta_header_intermediate), 
+    "(", size, "nt chuncks )",
+    "constitutive N collapsed seq"
+  )
+  
+  fasta_lines <- c()
+  for(i in 1:length(seqs)){
+    fasta_lines <- c(
+      fasta_lines, 
+      fasta_headers[i],
+      seqs[i],
+      ""
+    )
+  }
+  
+  write_lines(fasta_lines, output_fasta_path)
+}
+
+write_fasta_chunks("stg", 1000, "~/Desktop/stg.fa")
+
+## does expression correlate btwn blood and brain?
+pcnc_constitutive_brain_blood %>%
+  filter(brain_tpm > 1e0 & blood_cpm > 1e0) %>% 
+  ggplot(aes(x = brain_tpm, y = blood_cpm)) + 
+  geom_point(aes(colour = log10(constitutive_length)),
+    stroke = 0, alpha = 0.8, size = 1.2) + 
+  ggpubr::stat_cor(show.legend = FALSE) +
+  geom_hline(yintercept = c(50, 1500)) + 
+  geom_vline(xintercept = c(40, 500)) +
+  scale_x_log10(labels = scales::trans_format("log10", scales::math_format(10^.x))) + 
+  scale_y_log10(labels = scales::trans_format("log10", scales::math_format(10^.x))) + 
+  labs(
+    title = "Brain vs Blood expression correlation per gene",
+    x = "L3 brain (TPM, Transcripts per million)",
+    y = "L3 blood (CPM, Counts per million)"
+  ) +
+  colorspace::scale_colour_continuous_sequential(palette = "inferno", rev = FALSE) +
+  # facet_wrap(~ constitutive_exist_over_2k) + 
+  theme_bw(base_size = 15)
+
+```
+
+
+#### selection on marker expression & length 
+
+```{r}
+##
+pcnc_constitutive_brain_blood %>%
+  ggplot(aes(y = constitutive_length)) +
+  ggbeeswarm::geom_quasirandom(
+    aes(x = brain_marker)
+  ) + 
+  ggbeeswarm::geom_quasirandom(
+    aes(x = blood_marker)
+  )
+
+
+pcnc_constitutive_brain_blood %>%
+  filter(brain_tpm > 0) %>%
+  filter(!is.na(brain_marker)) %>%
+  ggplot(aes(x = brain_tpm, y = constitutive_length, colour = brain_marker)) + 
+  geom_point(stroke = 0, alpha = 1, size = 1) + 
+  geom_text(aes(label = gene_name)) + 
+  scale_x_log10() + 
+  scale_y_log10() + 
+  # labs(
+  #   title = "Brain vs Blood expression correlation per gene",
+  #   x = "L3 brain (TPM)",
+  #   y = "L3 blood (CPM)"
+  # ) +
+  theme_bw()
+
+pcnc_constitutive_brain_blood %>%
+  filter(blood_cpm > 0) %>%
+  filter(!is.na(blood_marker)) %>%
+  ggplot(aes(x = blood_cpm, y = constitutive_length, colour = blood_marker)) + 
+  geom_point(stroke = 0, alpha = 1, size = 1) + 
+  geom_text(aes(label = gene_name)) + 
+  scale_x_log10() + 
+  scale_y_log10() + 
+  # labs(
+  #   title = "Brain vs Blood expression correlation per gene",
+  #   x = "L3 brain (TPM)",
+  #   y = "L3 blood (CPM)"
+  # ) +
+  theme_bw()
+
+
+
+```
+
+
+\newpage
+
+# MUS MUSCULUS
+
+## Environment
+
+```{r}
+library(tidyverse)
+library(valr)
+library(furrr)
+library(qs)
+library(patchwork)
+
+plan(multisession, workers = 8)
+
+release_version <- 113
+
+```
+
+## Process GTF
+
+### Get GTF and prepare an annotated list per protein-coding and non-coding genes
+
+* Using the latest ENSEMBL **release 113** version
+* ENSEMBL GTF is 1-based (use default read_gtf() option to convert automatically to 0-based coordinates)
+
+```{r}
+## Download gtf
+release_version <- 113
+gtf_file <- biomartr::getGTF(
+  db = "ensembl",
+  organism = "Mus musculus",
+  path = tempdir(),
+  release = release_version
+)
+
+## import gtf
+gtf <- read_gtf(gtf_file)
+head(gtf)
+
+## explore mane/appris
+gtf$tag %>% unique()
+
+## prepare tx2gene file
+t2g <- gtf %>%
+  dplyr::select(gene_id, transcript_id) %>%
+  filter(!is.na(gene_id)) %>%
+  filter(!is.na(transcript_id)) %>%
+  distinct()
+
+write_csv(t2g, paste0("./GENOMEDIR/Mmus_ensembl_v", release_version,"_tx2gene.csv"))
+
+## which biotypes are present?
+gtf %>%
+  filter(type == "gene") %>%
+  group_by(gene_biotype) %>%
+  dplyr::summarise(n = n()) %>%
+  arrange(desc(n))
+
+```
+
+### TSL support
+
+- Take TSL1 and TSL2 unless the top scorers are absent
+- Otherwise, take the next best scoring TSL
+
+```{r}
+## Numericate tsl column
+gtf_tsl_fix <- gtf %>%
+  mutate(transcript_support_level = str_replace_all(transcript_support_level, "\\s.+", "")) %>%
+  mutate(transcript_support_level = if_else(transcript_support_level == "NA", NA_character_, transcript_support_level)) %>%
+  mutate(transcript_support_level = as.double(transcript_support_level))
+
+gtf_tsl_fix$transcript_support_level %>% unique()
+
+gtf_tsl_stat <- gtf_tsl_fix %>%
+  group_by(gene_id, gene_name, transcript_support_level) %>%
+  summarise(
+    n = n(),
+  )
+
+gtf <- gtf_tsl_fix
+
+
+# ## Get minimum tsl score for each gene
+# min_tsl_df <- gtf_tsl_fix %>%
+#   group_by(gene_id) %>%
+#   summarise(min_tsl = min(transcript_support_level, na.rm = TRUE))
+# 
+# ## classify genes into ideal (tsl1 or 2), take best (tsl3-5), take all (NA)
+# genes_ideal_tsl <- min_tsl_df %>%
+#   filter(min_tsl %in% c(1, 2)) %>% 
+#   pull(gene_id)
+# 
+# genes_takebest_tsl <- min_tsl_df %>%
+#   filter(min_tsl %in% c(3, 4, 5)) %>%
+#   pull(gene_id)
+# 
+# 
+# gene_takeall_tsl
+# 
+# 
+# 
+# 
+# 
+# ##
+# pcnc_constitutive_list[["ENSG00000151005"]]
+
+```
+
+### Create list
+
+```{r}
+## filter for protein coding and ncRNA
+gtf_pcnc <- gtf %>% 
+  filter(gene_biotype %in% c("protein_coding", "lncRNA"))
+
+## how many genes have both +/- strand attributes?
+strand_test_df <- gtf_pcnc %>%
+  filter(type == "exon") %>%
+  group_by(gene_id) %>%
+  summarise(strand = unique(strand) %>% sort() %>% paste0(collapse = ""))
+
+## create a list for each gene
+pcnc_list <- gtf_pcnc %>%
+  split(gtf_pcnc$gene_id)
+
+## create a filtered list of exons
+pcnc_exon_list <- pcnc_list %>%
+  future_imap(~{
+    exon_intervals <- .x %>% filter(type == "exon")
+    isoform_count <- unique(exon_intervals$transcript_id) %>% length()
+    strand <- unique(exon_intervals$strand) %>% unique()
+    min_transcript_support_level <- min(exon_intervals$transcript_support_level, na.rm = TRUE)
+    
+    output <- list(
+      gene_id = .y,
+      gene_name = unique(exon_intervals$gene_name),
+      gene_biotype = unique(exon_intervals$gene_biotype),
+      exon_intervals = exon_intervals,
+      isoform_count = isoform_count,
+      strand = strand,
+      min_transcript_support_level = min_transcript_support_level
+    )
+    
+    return(output)
+  }, .progress = TRUE)
+
+## save the list 
+qsave(pcnc_exon_list, paste0("./data/RNA-structure/Mmus/Mmus_ensembl_v",
+                             release_version,
+                             "_proteincoding_noncoding_exon_list.qs")
+)
+
+## distribution of transcript isoform count per gene
+pcnc_exon_list <- qread("./data/RNA-structure/Mmus/Mmus_ensembl_v113_proteincoding_noncoding_exon_list.qs")
+
+isoform_count_df <- pcnc_exon_list %>%
+  future_imap_dfr(~{
+    tibble(
+      gene_name = pluck(.x, "gene_name"),
+      gene_biotype = pluck(.x, "gene_biotype"),
+      isoform_count = pluck(.x, "isoform_count")
+      )
+  }, .id = "gene_id")
+
+if(!dir.exists("./data/RNA-structure/Mmus/plots")){
+  dir.create("./data/RNA-structure/Mmus/plots")
+}
+
+isoform_count_df %>%
+  ggplot(aes(x = isoform_count)) + 
+  geom_histogram(bins = 50) + 
+  scale_y_log10() + 
+  labs(title = "Number of tx isoforms per gene") + 
+  facet_wrap(~ gene_biotype) + 
+  theme_bw(base_size = 15)
+
+ggsave("./data/RNA-structure/Mmus/plots/plot_tx-isoform-count-per-gene.pdf")
+
+```
+
+
+### Find constitutive intervals for multi-isoform transcripts
+
+#### set up bedtools environment
+
+* My conda env has bedtools 2.31.1, whereas bedtoolsr is built for 2.30.0 - just in case there are syntax errors...
+
+```{r}
+library(bedtoolsr)
+
+conda_bedtools_bin <- "/opt/miniconda3/envs/bedtools/bin" # find this directory
+Sys.setenv(PATH = paste(Sys.getenv("PATH"), conda_bedtools_bin, sep = .Platform$path.sep))
+Sys.getenv("PATH")
+Sys.which("bedtools")
+```
+
+#### Add TSL support
+
+```{r}
+##
+pcnc_exon_list <- qread("./data/RNA-structure/Mmus/Mmus_ensembl_v113_proteincoding_noncoding_exon_list.qs") 
+
+## add tsl support (1 and 2, or the best score) information
+pcnc_exon_list <- pcnc_exon_list %>%
+  map(~{
+    if (.x$min_transcript_support_level <= 2) {
+      .x[["tsl_filtered_transcript_ids"]] <- .x[["exon_intervals"]] %>%
+        filter(transcript_support_level <= 2) %>%
+        pull(transcript_id) %>% 
+        unique()
+      .x[["tsl_isoform_count"]] <- length(.x[["tsl_filtered_transcript_ids"]])
+    } else if (.x$min_transcript_support_level > 2 & .x$min_transcript_support_level <= 5) {
+      .x[["tsl_filtered_transcript_ids"]] <- .x[["exon_intervals"]] %>%
+        filter(transcript_support_level == .x$min_transcript_support_level) %>%
+        pull(transcript_id) %>% 
+        unique()
+      .x[["tsl_isoform_count"]] <- length(.x[["tsl_filtered_transcript_ids"]])
+    } else {
+      .x[["tsl_filtered_transcript_ids"]] <- .x[["exon_intervals"]] %>%
+        pull(transcript_id) %>% 
+        unique()
+      .x[["tsl_isoform_count"]] <- length(.x[["tsl_filtered_transcript_ids"]])
+    }
+    
+    return(.x)
+  }, .progress = TRUE)
+
+qsave(pcnc_exon_list, paste0("./data/RNA-structure/Mmus/Mmus_ensembl_v",
+                             release_version,
+                             "_tsl_proteincoding_noncoding_exon_list.qs")
+)
+
+pcnc_exon_list[[1000]]
+```
+
+#### find constitutive regions and create a list
+
+```{r}
+##
+pcnc_exon_list <- qread("./data/RNA-structure/Mmus/Mmus_ensembl_v113_tsl_proteincoding_noncoding_exon_list.qs")
+
+## find constitutive regions and create a list (for all isoforms)
+pcnc_constitutive_list <- pcnc_exon_list %>%
+  map(~{
+    if(.x$isoform_count > 1){
+      ## multiinter output
+      multiinter_output <- pluck(.x, "exon_intervals") %>%
+        split(.$transcript_id) %>%
+        map(valr::bed_sort) %>%
+        bedtoolsr::bt.multiinter(header = TRUE, names = paste(names(.), collapse = " ")) %>% 
+        as_tibble() %>%
+        janitor::row_to_names(row_number = 1) %>%
+        mutate(across(c(start, end, num), as.numeric)) %>%
+        mutate(strand = pluck(.x, "strand")) %>%
+        mutate(width = end - start) %>%
+        dplyr::select(chrom, start, end, width, strand, everything())
+      
+      .x$multiinter_output <- multiinter_output
+      
+      ## constitutive intervals
+      constitutive_intervals <- multiinter_output %>%
+        filter(num == pluck(.x, "isoform_count")) %>%
+        dplyr::select(chrom, start, end, width, strand)
+      
+      .x$constitutive_intervals <- constitutive_intervals
+      
+      ## does constitutive intervals exist
+      .x$constitutive_exist <- ifelse(nrow(constitutive_intervals) > 0, TRUE, FALSE)
+      
+      ## length of constitutive intervals
+      .x$constitutive_length <- ifelse(
+        nrow(constitutive_intervals) == 0,
+        0,
+        sum(constitutive_intervals$width)
+      )
+      
+      return(.x)
+      
+    } else if(.x$isoform_count == 1){
+      .x$multiinter_output <- pluck(.x, "exon_intervals") %>%
+        mutate(num = 1) %>%
+        dplyr::select(chrom, start, end, width, strand, num, "list" = transcript_id)
+      
+      .x$constitutive_intervals <- pluck(.x, "exon_intervals") %>%
+        dplyr::select(chrom, start, end, width, strand)
+      
+      .x$constitutive_exist <- TRUE
+      
+      .x$constitutive_length <- pluck(.x, "exon_intervals") %>%
+        pull(width) %>% sum()
+      
+      return(.x)
+      
+    }
+  }, .progress = TRUE)
+
+## save output
+qsave(pcnc_constitutive_list, paste0("./data/RNA-structure/Mmus/Mmus_ensembl_v",
+                                     release_version,
+                                     "_proteincoding_noncoding_constitutive-region_list.qs")
+)
+
+## find constitutive regions and create a list (for all tsl supported isoforms)
+tsl_pcnc_constitutive_list <- pcnc_exon_list %>%
+  map(~{
+    if(.x$tsl_isoform_count > 1){
+      ## multiinter output
+      multiinter_output <- pluck(.x, "exon_intervals") %>%
+        dplyr::filter(transcript_id %in% .x$tsl_filtered_transcript_ids) %>%
+        split(.$transcript_id) %>%
+        map(valr::bed_sort) %>%
+        bedtoolsr::bt.multiinter(header = TRUE, names = paste(names(.), collapse = " ")) %>% 
+        as_tibble() %>%
+        janitor::row_to_names(row_number = 1) %>%
+        mutate(across(c(start, end, num), as.numeric)) %>%
+        mutate(strand = pluck(.x, "strand")) %>%
+        mutate(width = end - start) %>%
+        dplyr::select(chrom, start, end, width, strand, everything())
+      
+      .x$multiinter_output <- multiinter_output
+      
+      ## constitutive intervals
+      constitutive_intervals <- multiinter_output %>%
+        filter(num == pluck(.x, "tsl_isoform_count")) %>%
+        dplyr::select(chrom, start, end, width, strand)
+      
+      .x$constitutive_intervals <- constitutive_intervals
+      
+      ## does constitutive intervals exist
+      .x$constitutive_exist <- ifelse(nrow(constitutive_intervals) > 0, TRUE, FALSE)
+      
+      ## length of constitutive intervals
+      .x$constitutive_length <- ifelse(
+        nrow(constitutive_intervals) == 0,
+        0,
+        sum(constitutive_intervals$width)
+      )
+      
+      return(.x)
+      
+    } else if(.x$tsl_isoform_count == 1){
+      .x$multiinter_output <- pluck(.x, "exon_intervals") %>%
+        dplyr::filter(transcript_id %in% .x$tsl_filtered_transcript_ids) %>%
+        mutate(num = 1) %>%
+        dplyr::select(chrom, start, end, width, strand, num, "list" = transcript_id)
+      
+      .x$constitutive_intervals <- pluck(.x, "exon_intervals") %>%
+        dplyr::filter(transcript_id %in% .x$tsl_filtered_transcript_ids) %>%
+        dplyr::select(chrom, start, end, width, strand)
+      
+      .x$constitutive_exist <- TRUE
+      
+      .x$constitutive_length <- pluck(.x, "exon_intervals") %>%
+        dplyr::filter(transcript_id %in% .x$tsl_filtered_transcript_ids) %>%
+        pull(width) %>% sum()
+      
+      return(.x)
+      
+    }
+  }, .progress = TRUE)
+
+
+## save output
+qsave(tsl_pcnc_constitutive_list, paste0("./data/RNA-structure/Mmus/Mmus_ensembl_v",
+                                     release_version,
+                                     "_tsl_proteincoding_noncoding_constitutive-region_list.qs")
+)
+
+
+```
+
+
+## Extract RNA sequences 
+
+### Download FASTA file
+
+```{r}
+release_version <- 113
+
+fasta_file <- biomartr::getGenome(
+  db = "ensembl",
+  organism = "Mus musculus",
+  release = release_version,
+  gunzip = TRUE,
+  path = tempdir(),
+)
+
+```
+
+### Get transcript sequences of constitutive regions
+
+#### Full constitutive (all isoforms)
+
+```{r}
+## constitutive list
+pcnc_constitutive_list <- qread("./data/RNA-structure/Mmus/Mmus_ensembl_v113_proteincoding_noncoding_constitutive-region_list.qs")
+
+## get fasta sequence, arrange order depending on the strand, and add character counts with "N"
+pcnc_constitutive_seq_list <- pcnc_constitutive_list %>%
+  map(~ {
+    if (.x$constitutive_exist == TRUE) {
+      bed_touse <- .x$constitutive_intervals %>%
+        dplyr::mutate(name = str_c(chrom, start, end, strand, sep = ":")) %>%
+        dplyr::select(chrom, start, end, name, "score" = width, strand)
+
+      getfasta_output <- bedtoolsr::bt.getfasta(
+        fi = fasta_file,
+        bed = bed_touse,
+        bedOut = TRUE,
+        s = TRUE
+      ) %>%
+        as_tibble() %>%
+        setNames(c("chrom", "start", "end", "name", "width", "strand", "seq")) %>%
+        dplyr::select(-name) %>%
+        dplyr::arrange(if (.x$strand == "+") start else desc(start)) %>%
+        mutate(nchar_plus_N_cumsum = cumsum(width + 1))
+
+      .x$constitutive_sequence_df <- getfasta_output
+      return(.x)
+    } else {
+      .x$constitutive_sequence_df <- tibble(
+        chrom = character(),
+        start = numeric(),
+        end = numeric(),
+        width = numeric(),
+        strand = character(),
+        seq = character(),
+        nchar_plus_N_cumsum = numeric()
+      )
+      return(.x)
+    }
+  }, .progress = TRUE)
+
+## get concatenated target sequence collapsed for "N"
+pcnc_constitutive_seq_list <- pcnc_constitutive_seq_list %>%
+  map(~ {
+    if (.x$constitutive_exist == TRUE) {
+      constitutive_seq_Ncollapsed <- .x$constitutive_sequence_df %>%
+        pull(seq) %>%
+        paste0(collapse = "N")
+      .x$constitutive_seq_Ncollapsed <- constitutive_seq_Ncollapsed
+      return(.x)
+    } else {
+      .x$constitutive_seq_Ncollapsed <- NULL
+      return(.x)
+    }
+  }, .progress = TRUE)
+
+pcnc_constitutive_seq_list[[301]]
+
+## save 
+pcnc_constitutive_seq_list %>%
+  qsave(paste0("./data/RNA-structure/Mmus/Mmus_ensembl_v",
+               release_version,
+               "_proteincoding_noncoding_constitutive-sequence_list.qs")
+  )
+
+```
+
+#### TSL-supported isoforms
+
+```{r}
+## constitutive list
+tsl_pcnc_constitutive_list <- qread("./data/RNA-structure/Mmus/Mmus_ensembl_v113_tsl_proteincoding_noncoding_constitutive-region_list.qs")
+
+## get fasta sequence, arrange order depending on the strand, and add character counts with "N"
+tsl_pcnc_constitutive_seq_list <- tsl_pcnc_constitutive_list %>%
+  map(~ {
+    if (.x$constitutive_exist == TRUE) {
+      bed_touse <- .x$constitutive_intervals %>%
+        dplyr::mutate(name = str_c(chrom, start, end, strand, sep = ":")) %>%
+        dplyr::select(chrom, start, end, name, "score" = width, strand)
+
+      getfasta_output <- bedtoolsr::bt.getfasta(
+        fi = fasta_file,
+        bed = bed_touse,
+        bedOut = TRUE,
+        s = TRUE
+      ) %>%
+        as_tibble() %>%
+        setNames(c("chrom", "start", "end", "name", "width", "strand", "seq")) %>%
+        dplyr::select(-name) %>%
+        dplyr::arrange(if (.x$strand == "+") start else desc(start)) %>%
+        mutate(nchar_plus_N_cumsum = cumsum(width + 1))
+
+      .x$constitutive_sequence_df <- getfasta_output
+      return(.x)
+    } else {
+      .x$constitutive_sequence_df <- tibble(
+        chrom = character(),
+        start = numeric(),
+        end = numeric(),
+        width = numeric(),
+        strand = character(),
+        seq = character(),
+        nchar_plus_N_cumsum = numeric()
+      )
+      return(.x)
+    }
+  }, .progress = TRUE)
+
+## get concatenated target sequence collapsed for "N"
+tsl_pcnc_constitutive_seq_list <- tsl_pcnc_constitutive_seq_list %>%
+  map(~ {
+    if (.x$constitutive_exist == TRUE) {
+      constitutive_seq_Ncollapsed <- .x$constitutive_sequence_df %>%
+        pull(seq) %>%
+        paste0(collapse = "N")
+      .x$constitutive_seq_Ncollapsed <- constitutive_seq_Ncollapsed
+      return(.x)
+    } else {
+      .x$constitutive_seq_Ncollapsed <- NULL
+      return(.x)
+    }
+  }, .progress = TRUE)
+
+tsl_pcnc_constitutive_seq_list[[301]]
+
+## save 
+tsl_pcnc_constitutive_seq_list %>%
+  qsave(paste0("./data/RNA-structure/Mmus/Mmus_ensembl_v",
+               release_version,
+               "_tsl_proteincoding_noncoding_constitutive-sequence_list.qs")
+  )
+
+```
+
+
+
+## Exploring the constitutive region dataset
+
+### Summary of isoform constitutive mappings
+
+```{r}
+# - - - - - Full isoforms
+pcnc_constitutive_seq_list <- 
+  qread(paste0("./data/RNA-structure/Mmus/Mmus_ensembl_v",
+               release_version,
+               "_proteincoding_noncoding_constitutive-sequence_list.qs")
+  )
+
+## Summary dataframe
+pcnc_constitutive_summary_df <- pcnc_constitutive_seq_list %>%
+  imap_dfr(~{
+    tibble(
+      gene_id = .x$gene_id,
+      gene_name = .x$gene_name,
+      gene_biotype = .x$gene_biotype,
+      strand = .x$strand,
+      isoform_count = .x$isoform_count,
+      constitutive_exist = .x$constitutive_exist,
+      constitutive_length = .x$constitutive_length,
+      constitutive_seq_Ncollapsed = ifelse(is.null(.x$constitutive_seq_Ncollapsed), 
+                                           "NA", 
+                                           as.character(.x$constitutive_seq_Ncollapsed))
+    )
+  }, .progress = TRUE) %>%
+  mutate(constitutive_exist_over_500 = if_else(constitutive_length > 500, TRUE, FALSE)) %>%
+  mutate(constitutive_exist_over_2k = if_else(constitutive_length > 2000, TRUE, FALSE))
+
+write_csv(pcnc_constitutive_summary_df, paste0("./data/RNA-structure/Mmus/Mmus_ensembl_v",
+                                               release_version,
+                                               "_proteincoding_noncoding_constitutive-sequence_summary.csv")
+)
+
+## Summary plots
+pcnc_constitutive_summary_df %>%
+  ggplot(aes(x = gene_biotype, fill = constitutive_exist_over_500)) +
+  geom_bar(position = position_stack()) + 
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_stack(), vjust = -0.5) + 
+  labs(title = "Constitutive sequence over 500nt exist?") + 
+  theme_bw(base_size = 15) 
+
+ggsave("./data/RNA-structure/Mmus/plots/plot_constitutive-length-over-500nt.pdf")
+
+pcnc_constitutive_summary_df %>%
+  ggplot(aes(x = gene_biotype, fill = constitutive_exist_over_2k)) +
+  geom_bar(position = position_stack()) + 
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_stack(), vjust = -0.5) + 
+  labs(title = "Constitutive sequence over 2000nt exist?") + 
+  theme_bw(base_size = 15) 
+
+ggsave("./data/RNA-structure/Mmus/plots/plot_constitutive-length-over-2000nt.pdf")
+
+pcnc_constitutive_summary_df %>%
+  ggplot(aes(x = constitutive_length)) +
+  geom_histogram() + 
+  scale_x_log10() +
+  facet_wrap(~ constitutive_exist + gene_biotype) +
+  labs(title = "Have constitutive sequence?") + 
+  theme_bw(base_size = 15)
+
+ggsave("./data/RNA-structure/Mmus/plots/plot_constitutive-length-histogram.pdf")
+
+# - - - - - TSL-supported isoforms
+tsl_pcnc_constitutive_seq_list <- qread("./data/RNA-structure/Mmus/Mmus_ensembl_v113_tsl_proteincoding_noncoding_constitutive-sequence_list.qs")
+
+## Summary dataframe
+tsl_pcnc_constitutive_summary_df <- tsl_pcnc_constitutive_seq_list %>%
+  imap_dfr(~{
+    tibble(
+      gene_id = .x$gene_id,
+      gene_name = .x$gene_name,
+      gene_biotype = .x$gene_biotype,
+      strand = .x$strand,
+      isoform_count = .x$tsl_isoform_count,
+      constitutive_exist = .x$constitutive_exist,
+      constitutive_length = .x$constitutive_length,
+      constitutive_seq_Ncollapsed = ifelse(is.null(.x$constitutive_seq_Ncollapsed), 
+                                           "NA", 
+                                           as.character(.x$constitutive_seq_Ncollapsed))
+    )
+  }, .progress = TRUE) %>%
+  mutate(constitutive_exist_over_500 = if_else(constitutive_length > 500, TRUE, FALSE)) %>%
+  mutate(constitutive_exist_over_2k = if_else(constitutive_length > 2000, TRUE, FALSE))
+
+write_csv(tsl_pcnc_constitutive_summary_df, paste0("./data/RNA-structure/Mmus/Mmus_ensembl_v",
+                                               release_version,
+                                               "_tsl_proteincoding_noncoding_constitutive-sequence_summary.csv")
+)
+
+## Summary plots
+tsl_pcnc_constitutive_summary_df %>%
+  ggplot(aes(x = gene_biotype, fill = constitutive_exist_over_500)) +
+  geom_bar(position = position_stack()) + 
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_stack(), vjust = -0.5) + 
+  labs(title = "Constitutive sequence over 500nt exist?") + 
+  theme_bw(base_size = 15) 
+
+ggsave("./data/RNA-structure/Mmus/plots/plot_tsl_constitutive-length-over-500nt.pdf")
+
+tsl_pcnc_constitutive_summary_df %>%
+  ggplot(aes(x = gene_biotype, fill = constitutive_exist_over_2k)) +
+  geom_bar(position = position_stack()) + 
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_stack(), vjust = -0.5) + 
+  labs(title = "Constitutive sequence over 2000nt exist?") + 
+  theme_bw(base_size = 15) 
+
+ggsave("./data/RNA-structure/Mmus/plots/plot_tsl_constitutive-length-over-2000nt.pdf")
+
+tsl_pcnc_constitutive_summary_df %>%
+  ggplot(aes(x = constitutive_length)) +
+  geom_histogram() + 
+  scale_x_log10() +
+  facet_wrap(~ constitutive_exist + gene_biotype) +
+  labs(title = "Have constitutive sequence?") + 
+  theme_bw(base_size = 15)
+
+ggsave("./data/RNA-structure/Mmus/plots/plot_tsl_constitutive-length-histogram.pdf")
+
+
+```
+
+### Plotting transcript architecture
+
+```{r}
+pcnc_constitutive_seq_list <- qread("./data/RNA-structure/Mmus/Mmus_ensembl_v113_proteincoding_noncoding_constitutive-sequence_list.qs")
+
+tsl_pcnc_constitutive_seq_list <- qread("./data/RNA-structure/Mmus/Mmus_ensembl_v113_tsl_proteincoding_noncoding_constitutive-sequence_list.qs")
+
+## helper function
+plot_isoforms <- function(pcnc_seq, gene_name, colour_tsl_score = TRUE){
+  list_element <- pcnc_seq %>% 
+    purrr::keep(~.x[["gene_name"]] %in% gene_name) %>% pluck(1)
+  
+  if(colour_tsl_score){
+  list_element$exon_intervals %>% ggplot() +
+      geom_segment(
+        aes(x = min(list_element$exon_intervals$start), 
+            xend = max(list_element$exon_intervals$end), 
+            y = reorder(transcript_id, -transcript_support_level), 
+            yend = reorder(transcript_id, -transcript_support_level)),
+        linewidth = 0.5, colour = "gray80"
+      ) +
+      geom_segment(
+        data = list_element$exon_intervals,
+        aes(x = start, xend = end, y = reorder(transcript_id, -transcript_support_level), yend = reorder(transcript_id, -transcript_support_level), colour = as.factor(transcript_support_level)),
+        linewidth = 3, 
+        inherit.aes = FALSE
+      ) +
+      geom_segment(
+        data = list_element$constitutive_intervals, 
+        aes(x = start, xend = end, y = "CONSTITUTIVE", yend = "CONSTITUTIVE"),
+        linewidth = 7, colour = "coral", 
+        inherit.aes = FALSE
+      ) + 
+      colorspace::scale_colour_discrete_qualitative(palette = "Dark 3", na.value = "gray40") +
+      labs(
+        title = paste0(
+          list_element$gene_id, " ", 
+          list_element$gene_name, " ", 
+          list_element$strand, "ve strand ",
+          paste0("(constitutive ", list_element$constitutive_length, "nt)")
+        ),
+        x = "Chromosomal coordinate",
+        y = "Transcript ID",
+        colour = "TSL score"
+      ) + 
+      theme_bw()
+  } else {
+    list_element$exon_intervals %>% ggplot() +
+      geom_segment(
+        aes(x = min(list_element$exon_intervals$start), 
+            xend = max(list_element$exon_intervals$end), 
+            y = reorder(transcript_id, -transcript_support_level), 
+            yend = reorder(transcript_id, -transcript_support_level)),
+        linewidth = 0.5, colour = "gray80"
+      ) +
+      geom_segment(
+        data = list_element$exon_intervals,
+        aes(x = start, xend = end, y = reorder(transcript_id, -transcript_support_level), yend = reorder(transcript_id, -transcript_support_level)),
+        colour = "gray40",
+        linewidth = 3, 
+        inherit.aes = FALSE
+      ) +
+      geom_segment(
+        data = list_element$constitutive_intervals, 
+        aes(x = start, xend = end, y = "CONSTITUTIVE", yend = "CONSTITUTIVE"),
+        linewidth = 7, colour = "coral", 
+        inherit.aes = FALSE
+      ) + 
+      labs(
+        title = paste0(
+          list_element$gene_id, " ", 
+          list_element$gene_name, " ", 
+          list_element$strand, "ve strand ",
+          paste0("(constitutive ", list_element$constitutive_length, "nt)")
+        ),
+        x = "Chromosomal coordinate",
+        y = "Transcript ID",
+        colour = "TSL score"
+      ) + 
+      theme_bw()
+  }
+}
+
+plot_isoforms(tsl_pcnc_constitutive_seq_list, "Csf1", colour_tsl_score = TRUE)
+plot_isoforms(tsl_pcnc_constitutive_seq_list, "Cplx2", colour_tsl_score = TRUE)
+
+plot_isoforms(tsl_pcnc_constitutive_seq_list, "Ccl2", colour_tsl_score = FALSE)
+ggsave("~/Desktop/constitutive-example.png", width = 9, height = 4)
+
+
+## Explore some plots
+library(patchwork)
+
+# pcnc_constitutive_seq_list %>%
+#   purrr::keep(~ .x$gene_name %in% c("SYNCRIP", "PURA", "PURB", "OAS1")) %>%
+#   map(plot_isoforms) %>%
+#   wrap_plots()
+
+ggsave("./data/RNA-structure/Mmus/plots/plot_constitutive_txplot-example.pdf", width = 12, height = 9)
+
+## there's a gene without a name (NA gives == a error) ENST00000456270
+
+
+
+
+tsl_pcnc_constitutive_seq_list[["ENSG00000185129"]]
+
+x$exon_intervals %>% View()
+  
+  
+```
+
+### Retrieving constitutive sequence of a gene 
+
+```{r}
+pcnc_constitutive_seq_list <- 
+  qread(paste0("./data/RNA-structure/Mmus/Hsap_ensembl_v",
+               release_version,
+               "_proteincoding_noncoding_constitutive-sequence_list.qs")
+  )
+
+gene_id <- "FBgn0025790"
+output_fasta_path <- "~/Desktop.fa"
+
+fasta_lines <- c(
+  paste(
+   ">", gene_id, 
+   pluck(pcnc_constitutive_list, gene_id) %>% pluck("gene_name"),  
+   "RNA isoform-consitutive sequence (N collapsed)" 
+  ),
+  pluck(pcnc_constitutive_seq_list, gene_id) %>% pluck("constitutive_seq_Ncollapsed")
+)
+
+write_lines(fasta_lines, output_fasta_path)
+
+```
+
+## Intersect with Gerry's list
+
+```{r}
+## What are the stats for Gerry's genes?
+release_version <- 113
+tsl_pcnc_constitutive_summary_df <- read_csv(
+  paste0("./data/RNA-structure/Mmus/Mmus_ensembl_v",
+         release_version,
+         "_tsl_proteincoding_noncoding_constitutive-sequence_summary.csv")
+)
+
+gerry_gene_vector <- c("Ccl2", "Ccl3", "Ccl4", "Ccl5", "Ccl5", "Ccl7", "Csf1", "Csf2",
+                       "Il1b", "Il6", "Tnf", "Il17a", "Ifna1", "Ifng", 
+                       "Tlr1", "Tlr2", "Tlr3", "Tlr4", "Tlr5", "Tlr6", "Tlr7", "Tlr8", "Tlr9", "Tlr11", "Tlr12", "Tlr13",
+                       "Ptprc", "Cxcr2", "Prtn3", "Csf1r", "Ly6c1", "Lyve1", "Pdpn", "Pecam1")
+
+tibble(gene_name = gerry_gene_vector) %>%
+  mutate(does_exist = gene_name %in% tsl_pcnc_constitutive_summary_df$gene_name) 
+
+gerry_gene_df <- tsl_pcnc_constitutive_summary_df %>%
+  filter(gene_name %in% gerry_gene_vector) %>%
+  dplyr::select(gene_name, "constitutive_length(nt)" = constitutive_length, isoform_count) %>%
+  # arrange(desc(`constitutive_length(nt)`)) %>%
+  arrange(gene_name)
+
+library(gt) 
+
+gerry_gene_df %>%
+  gt() %>%
+  tab_header(title = "Isoform-constitutive RNA sequence length", subtitle = "gene list from Gerry") %>%
+  fmt_number(columns = `constitutive_length(nt)`, decimals = 0) %>%
+  gtsave("~/Desktop/gerry_gene_constitutive_length.png")
+
+# library(biomaRt)
+# 
+# mmus_ensembl <- useEnsembl(biomart = "ensembl", dataset = "mmusculus_gene_ensembl", version = 113)
+# mmus_ensembl_attr <- listAttributes(mmus_ensembl)
+
+## MGI annotation 
+go_immune_response <- read_tsv("./data/RNA-structure/Mmus/MGI/GO_term_summary_immune-response-process.txt") %>%
+  pull(Symbol) %>% unique()
+go_signalling <- read_tsv("./data/RNA-structure/Mmus/MGI/GO_term_summary_signalling.txt") %>%
+  pull(Symbol) %>% unique()
+expr_hematopoietic_system <- read_tsv("./data/RNA-structure/Mmus/MGI/MGIgeneExpressionQuery_hematopoietic-system.txt") %>%
+  filter(Detected == "Yes") %>%
+  pull(`Gene Symbol`) %>% unique()
+expr_immune_system <- read_tsv("./data/RNA-structure/Mmus/MGI/MGIgeneExpressionQuery_immune-system.txt") %>%
+  filter(Detected == "Yes") %>%
+  pull(`Gene Symbol`) %>% unique()
+
+output_df <- tsl_pcnc_constitutive_summary_df %>%
+  mutate(go_immune_response = if_else(gene_name %in% go_immune_response, TRUE, FALSE)) %>%
+  mutate(go_signalling = if_else(gene_name %in% go_signalling, TRUE, FALSE)) %>%
+  mutate(expr_hematopoietic_system = if_else(gene_name %in% expr_hematopoietic_system, TRUE, FALSE)) %>%
+  mutate(expr_immune_system = if_else(gene_name %in% expr_immune_system, TRUE, FALSE)) %>%
+  filter(constitutive_length >= 2000) %>%
+  # filter(
+  #   go_immune_response == TRUE |
+  #     go_signalling == TRUE &
+  #     expr_hematopoietic_system == TRUE |
+  #     expr_immune_system == TRUE
+  # ) %>%
+  filter(go_immune_response == TRUE | go_signalling == TRUE) %>%
+  filter(expr_hematopoietic_system == TRUE | expr_immune_system == TRUE) %>%
+  # filter(
+  #   go_immune_response == TRUE &
+  #     go_signalling == TRUE &
+  #     expr_hematopoietic_system == TRUE &
+  #     expr_immune_system == TRUE
+  # )
+  dplyr::select(
+    gene_id, gene_name, constitutive_length, "immune_response_function "= go_immune_response, "signalling_function" = go_signalling, "expression_hematopoietic_system" = expr_hematopoietic_system, "expression_immune_system" = expr_immune_system
+  ) %>%
+  arrange(desc(constitutive_length))
+
+
+output_df %>%
+  gt() %>%
+  gtsave("~/Desktop/mouse-long-constitutive-genes_immune-related.rtf")
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+# HOMO SAPIENS
+
+## Environment
+
+```{r}
+library(tidyverse)
+library(valr)
+library(furrr)
+library(qs)
+library(patchwork)
+
+plan(multisession, workers = 8)
+
+release_version <- 113
+
+```
+
+## Process GTF
+
+### Get GTF and prepare an annotated list per protein-coding and non-coding genes
+
+* Using the latest ENSEMBL **release 113** version
+* ENSEMBL GTF is 1-based (use default read_gtf() option to convert automatically to 0-based coordinates)
+
+```{r}
+## Download gtf
+release_version <- 113
+gtf_file <- biomartr::getGTF(
+  db = "ensembl",
+  organism = "Homo sapiens",
+  path = tempdir(),
+  release = release_version
+)
+
+## import gtf
+gtf <- read_gtf(gtf_file)
+head(gtf)
+
+## explore mane/appris
+gtf$tag %>% unique()
+
+
+## prepare tx2gene file
+t2g <- gtf %>%
+  dplyr::select(gene_id, transcript_id) %>%
+  filter(!is.na(gene_id)) %>%
+  filter(!is.na(transcript_id)) %>%
+  distinct()
+
+write_csv(t2g, paste0("./GENOMEDIR/Hsap_ensembl_v", release_version,"_tx2gene.csv"))
+
+## which biotypes are present?
+gtf %>%
+  filter(type == "gene") %>%
+  group_by(gene_biotype) %>%
+  dplyr::summarise(n = n()) %>%
+  arrange(desc(n))
+
+```
+
+### TSL support
+
+- Take TSL1 and TSL2 unless the top scorers are absent
+- Otherwise, take the next best scoring TSL
+
+```{r}
+## Numericate tsl column
+gtf_tsl_fix <- gtf %>%
+  mutate(transcript_support_level = str_replace_all(transcript_support_level, "\\s.+", "")) %>%
+  mutate(transcript_support_level = if_else(transcript_support_level == "NA", NA_character_, transcript_support_level)) %>%
+  mutate(transcript_support_level = as.double(transcript_support_level))
+
+gtf_tsl_fix$transcript_support_level %>% unique()
+
+gtf_tsl_stat <- gtf_tsl_fix %>%
+  group_by(gene_id, gene_name, transcript_support_level) %>%
+  summarise(
+    n = n(),
+  )
+
+gtf <- gtf_tsl_fix
+
+
+# ## Get minimum tsl score for each gene
+# min_tsl_df <- gtf_tsl_fix %>%
+#   group_by(gene_id) %>%
+#   summarise(min_tsl = min(transcript_support_level, na.rm = TRUE))
+# 
+# ## classify genes into ideal (tsl1 or 2), take best (tsl3-5), take all (NA)
+# genes_ideal_tsl <- min_tsl_df %>%
+#   filter(min_tsl %in% c(1, 2)) %>% 
+#   pull(gene_id)
+# 
+# genes_takebest_tsl <- min_tsl_df %>%
+#   filter(min_tsl %in% c(3, 4, 5)) %>%
+#   pull(gene_id)
+# 
+# 
+# gene_takeall_tsl
+# 
+# 
+# 
+# 
+# 
+# ##
+# pcnc_constitutive_list[["ENSG00000151005"]]
+
+```
+
+### Create list
+
+```{r}
+## filter for protein coding and ncRNA
+gtf_pcnc <- gtf %>% 
+  filter(gene_biotype %in% c("protein_coding", "lncRNA"))
+
+## how many genes have both +/- strand attributes?
+strand_test_df <- gtf_pcnc %>%
+  filter(type == "exon") %>%
+  group_by(gene_id) %>%
+  summarise(strand = unique(strand) %>% sort() %>% paste0(collapse = ""))
+
+## create a list for each gene
+pcnc_list <- gtf_pcnc %>%
+  split(gtf_pcnc$gene_id)
+
+## create a filtered list of exons
+pcnc_exon_list <- pcnc_list %>%
+  future_imap(~{
+    exon_intervals <- .x %>% filter(type == "exon")
+    isoform_count <- unique(exon_intervals$transcript_id) %>% length()
+    strand <- unique(exon_intervals$strand) %>% unique()
+    min_transcript_support_level <- min(exon_intervals$transcript_support_level, na.rm = TRUE)
+    
+    output <- list(
+      gene_id = .y,
+      gene_name = unique(exon_intervals$gene_name),
+      gene_biotype = unique(exon_intervals$gene_biotype),
+      exon_intervals = exon_intervals,
+      isoform_count = isoform_count,
+      strand = strand,
+      min_transcript_support_level = min_transcript_support_level
+    )
+    
+    return(output)
+  }, .progress = TRUE)
+
+## save the list 
+qsave(pcnc_exon_list, paste0("./data/RNA-structure/Hsap/Hsap_ensembl_v",
+                             release_version,
+                             "_proteincoding_noncoding_exon_list.qs")
+)
+
+## distribution of transcript isoform count per gene
+pcnc_exon_list <- qread("./data/RNA-structure/Hsap/Hsap_ensembl_v113_proteincoding_noncoding_exon_list.qs")
+
+isoform_count_df <- pcnc_exon_list %>%
+  future_imap_dfr(~{
+    tibble(
+      gene_name = pluck(.x, "gene_name"),
+      gene_biotype = pluck(.x, "gene_biotype"),
+      isoform_count = pluck(.x, "isoform_count")
+      )
+  }, .id = "gene_id")
+
+if(!dir.exists("./data/RNA-structure/Hsap/plots")){
+  dir.create("./data/RNA-structure/Hsap/plots")
+}
+
+isoform_count_df %>%
+  ggplot(aes(x = isoform_count)) + 
+  geom_histogram(bins = 50) + 
+  scale_y_log10() + 
+  labs(title = "Number of tx isoforms per gene") + 
+  facet_wrap(~ gene_biotype) + 
+  theme_bw(base_size = 15)
+
+ggsave("./data/RNA-structure/Hsap/plots/plot_tx-isoform-count-per-gene.pdf")
+
+```
+
+
+### Find constitutive intervals for multi-isoform transcripts
+
+#### set up bedtools environment
+
+* My conda env has bedtools 2.31.1, whereas bedtoolsr is built for 2.30.0 - just in case there are syntax errors...
+
+```{r}
+library(bedtoolsr)
+
+conda_bedtools_bin <- "/opt/miniconda3/envs/bedtools/bin" # find this directory
+Sys.setenv(PATH = paste(Sys.getenv("PATH"), conda_bedtools_bin, sep = .Platform$path.sep))
+Sys.getenv("PATH")
+Sys.which("bedtools")
+```
+
+#### Add TSL support
+
+```{r}
+##
+pcnc_exon_list <- qread("./data/RNA-structure/Hsap/Hsap_ensembl_v113_proteincoding_noncoding_exon_list.qs") 
+
+## add tsl support (1 and 2, or the best score) information
+pcnc_exon_list <- pcnc_exon_list %>%
+  map(~{
+    if (.x$min_transcript_support_level <= 2) {
+      .x[["tsl_filtered_transcript_ids"]] <- .x[["exon_intervals"]] %>%
+        filter(transcript_support_level <= 2) %>%
+        pull(transcript_id) %>% 
+        unique()
+      .x[["tsl_isoform_count"]] <- length(.x[["tsl_filtered_transcript_ids"]])
+    } else if (.x$min_transcript_support_level > 2 & .x$min_transcript_support_level <= 5) {
+      .x[["tsl_filtered_transcript_ids"]] <- .x[["exon_intervals"]] %>%
+        filter(transcript_support_level == .x$min_transcript_support_level) %>%
+        pull(transcript_id) %>% 
+        unique()
+      .x[["tsl_isoform_count"]] <- length(.x[["tsl_filtered_transcript_ids"]])
+    } else {
+      .x[["tsl_filtered_transcript_ids"]] <- .x[["exon_intervals"]] %>%
+        pull(transcript_id) %>% 
+        unique()
+      .x[["tsl_isoform_count"]] <- length(.x[["tsl_filtered_transcript_ids"]])
+    }
+    
+    return(.x)
+  }, .progress = TRUE)
+
+qsave(pcnc_exon_list, paste0("./data/RNA-structure/Hsap/Hsap_ensembl_v",
+                             release_version,
+                             "_tsl_proteincoding_noncoding_exon_list.qs")
+)
+
+pcnc_exon_list[[1000]]
+```
+
+#### find constitutive regions and create a list
+
+```{r}
+##
+pcnc_exon_list <- qread("./data/RNA-structure/Hsap/Hsap_ensembl_v113_tsl_proteincoding_noncoding_exon_list.qs")
+
+## find constitutive regions and create a list (for all isoforms)
+pcnc_constitutive_list <- pcnc_exon_list %>%
+  map(~{
+    if(.x$isoform_count > 1){
+      ## multiinter output
+      multiinter_output <- pluck(.x, "exon_intervals") %>%
+        split(.$transcript_id) %>%
+        map(valr::bed_sort) %>%
+        bedtoolsr::bt.multiinter(header = TRUE, names = paste(names(.), collapse = " ")) %>% 
+        as_tibble() %>%
+        janitor::row_to_names(row_number = 1) %>%
+        mutate(across(c(start, end, num), as.numeric)) %>%
+        mutate(strand = pluck(.x, "strand")) %>%
+        mutate(width = end - start) %>%
+        dplyr::select(chrom, start, end, width, strand, everything())
+      
+      .x$multiinter_output <- multiinter_output
+      
+      ## constitutive intervals
+      constitutive_intervals <- multiinter_output %>%
+        filter(num == pluck(.x, "isoform_count")) %>%
+        dplyr::select(chrom, start, end, width, strand)
+      
+      .x$constitutive_intervals <- constitutive_intervals
+      
+      ## does constitutive intervals exist
+      .x$constitutive_exist <- ifelse(nrow(constitutive_intervals) > 0, TRUE, FALSE)
+      
+      ## length of constitutive intervals
+      .x$constitutive_length <- ifelse(
+        nrow(constitutive_intervals) == 0,
+        0,
+        sum(constitutive_intervals$width)
+      )
+      
+      return(.x)
+      
+    } else if(.x$isoform_count == 1){
+      .x$multiinter_output <- pluck(.x, "exon_intervals") %>%
+        mutate(num = 1) %>%
+        dplyr::select(chrom, start, end, width, strand, num, "list" = transcript_id)
+      
+      .x$constitutive_intervals <- pluck(.x, "exon_intervals") %>%
+        dplyr::select(chrom, start, end, width, strand)
+      
+      .x$constitutive_exist <- TRUE
+      
+      .x$constitutive_length <- pluck(.x, "exon_intervals") %>%
+        pull(width) %>% sum()
+      
+      return(.x)
+      
+    }
+  }, .progress = TRUE)
+
+## save output
+qsave(pcnc_constitutive_list, paste0("./data/RNA-structure/Hsap/Hsap_ensembl_v",
+                                     release_version,
+                                     "_proteincoding_noncoding_constitutive-region_list.qs")
+)
+
+## find constitutive regions and create a list (for all tsl supported isoforms)
+tsl_pcnc_constitutive_list <- pcnc_exon_list %>%
+  map(~{
+    if(.x$tsl_isoform_count > 1){
+      ## multiinter output
+      multiinter_output <- pluck(.x, "exon_intervals") %>%
+        dplyr::filter(transcript_id %in% .x$tsl_filtered_transcript_ids) %>%
+        split(.$transcript_id) %>%
+        map(valr::bed_sort) %>%
+        bedtoolsr::bt.multiinter(header = TRUE, names = paste(names(.), collapse = " ")) %>% 
+        as_tibble() %>%
+        janitor::row_to_names(row_number = 1) %>%
+        mutate(across(c(start, end, num), as.numeric)) %>%
+        mutate(strand = pluck(.x, "strand")) %>%
+        mutate(width = end - start) %>%
+        dplyr::select(chrom, start, end, width, strand, everything())
+      
+      .x$multiinter_output <- multiinter_output
+      
+      ## constitutive intervals
+      constitutive_intervals <- multiinter_output %>%
+        filter(num == pluck(.x, "tsl_isoform_count")) %>%
+        dplyr::select(chrom, start, end, width, strand)
+      
+      .x$constitutive_intervals <- constitutive_intervals
+      
+      ## does constitutive intervals exist
+      .x$constitutive_exist <- ifelse(nrow(constitutive_intervals) > 0, TRUE, FALSE)
+      
+      ## length of constitutive intervals
+      .x$constitutive_length <- ifelse(
+        nrow(constitutive_intervals) == 0,
+        0,
+        sum(constitutive_intervals$width)
+      )
+      
+      return(.x)
+      
+    } else if(.x$tsl_isoform_count == 1){
+      .x$multiinter_output <- pluck(.x, "exon_intervals") %>%
+        dplyr::filter(transcript_id %in% .x$tsl_filtered_transcript_ids) %>%
+        mutate(num = 1) %>%
+        dplyr::select(chrom, start, end, width, strand, num, "list" = transcript_id)
+      
+      .x$constitutive_intervals <- pluck(.x, "exon_intervals") %>%
+        dplyr::filter(transcript_id %in% .x$tsl_filtered_transcript_ids) %>%
+        dplyr::select(chrom, start, end, width, strand)
+      
+      .x$constitutive_exist <- TRUE
+      
+      .x$constitutive_length <- pluck(.x, "exon_intervals") %>%
+        dplyr::filter(transcript_id %in% .x$tsl_filtered_transcript_ids) %>%
+        pull(width) %>% sum()
+      
+      return(.x)
+      
+    }
+  }, .progress = TRUE)
+
+
+## save output
+qsave(tsl_pcnc_constitutive_list, paste0("./data/RNA-structure/Hsap/Hsap_ensembl_v",
+                                     release_version,
+                                     "_tsl_proteincoding_noncoding_constitutive-region_list.qs")
+)
+
+
+```
+
+
+## Extract RNA sequences 
+
+### Download FASTA file
+
+```{r}
+release_version <- 113
+
+fasta_file <- biomartr::getGenome(
+  db = "ensembl",
+  organism = "Homo sapiens",
+  release = release_version,
+  gunzip = TRUE,
+  path = tempdir(),
+)
+
+```
+
+### Get transcript sequences of constitutive regions
+
+#### Full constitutive (all isoforms)
+
+```{r}
+## constitutive list
+pcnc_constitutive_list <- qread("./data/RNA-structure/Hsap/Hsap_ensembl_v113_proteincoding_noncoding_constitutive-region_list.qs")
+
+## get fasta sequence, arrange order depending on the strand, and add character counts with "N"
+pcnc_constitutive_seq_list <- pcnc_constitutive_list %>%
+  map(~ {
+    if (.x$constitutive_exist == TRUE) {
+      bed_touse <- .x$constitutive_intervals %>%
+        dplyr::mutate(name = str_c(chrom, start, end, strand, sep = ":")) %>%
+        dplyr::select(chrom, start, end, name, "score" = width, strand)
+
+      getfasta_output <- bedtoolsr::bt.getfasta(
+        fi = fasta_file,
+        bed = bed_touse,
+        bedOut = TRUE,
+        s = TRUE
+      ) %>%
+        as_tibble() %>%
+        setNames(c("chrom", "start", "end", "name", "width", "strand", "seq")) %>%
+        dplyr::select(-name) %>%
+        dplyr::arrange(if (.x$strand == "+") start else desc(start)) %>%
+        mutate(nchar_plus_N_cumsum = cumsum(width + 1))
+
+      .x$constitutive_sequence_df <- getfasta_output
+      return(.x)
+    } else {
+      .x$constitutive_sequence_df <- tibble(
+        chrom = character(),
+        start = numeric(),
+        end = numeric(),
+        width = numeric(),
+        strand = character(),
+        seq = character(),
+        nchar_plus_N_cumsum = numeric()
+      )
+      return(.x)
+    }
+  }, .progress = TRUE)
+
+## get concatenated target sequence collapsed for "N"
+pcnc_constitutive_seq_list <- pcnc_constitutive_seq_list %>%
+  map(~ {
+    if (.x$constitutive_exist == TRUE) {
+      constitutive_seq_Ncollapsed <- .x$constitutive_sequence_df %>%
+        pull(seq) %>%
+        paste0(collapse = "N")
+      .x$constitutive_seq_Ncollapsed <- constitutive_seq_Ncollapsed
+      return(.x)
+    } else {
+      .x$constitutive_seq_Ncollapsed <- NULL
+      return(.x)
+    }
+  }, .progress = TRUE)
+
+pcnc_constitutive_seq_list[[301]]
+
+## save 
+pcnc_constitutive_seq_list %>%
+  qsave(paste0("./data/RNA-structure/Hsap/Hsap_ensembl_v",
+               release_version,
+               "_proteincoding_noncoding_constitutive-sequence_list.qs")
+  )
+
+```
+
+#### TSL-supported isoforms
+
+```{r}
+## constitutive list
+tsl_pcnc_constitutive_list <- qread("./data/RNA-structure/Hsap/Hsap_ensembl_v113_tsl_proteincoding_noncoding_constitutive-region_list.qs")
+
+## get fasta sequence, arrange order depending on the strand, and add character counts with "N"
+tsl_pcnc_constitutive_seq_list <- tsl_pcnc_constitutive_list %>%
+  map(~ {
+    if (.x$constitutive_exist == TRUE) {
+      bed_touse <- .x$constitutive_intervals %>%
+        dplyr::mutate(name = str_c(chrom, start, end, strand, sep = ":")) %>%
+        dplyr::select(chrom, start, end, name, "score" = width, strand)
+
+      getfasta_output <- bedtoolsr::bt.getfasta(
+        fi = fasta_file,
+        bed = bed_touse,
+        bedOut = TRUE,
+        s = TRUE
+      ) %>%
+        as_tibble() %>%
+        setNames(c("chrom", "start", "end", "name", "width", "strand", "seq")) %>%
+        dplyr::select(-name) %>%
+        dplyr::arrange(if (.x$strand == "+") start else desc(start)) %>%
+        mutate(nchar_plus_N_cumsum = cumsum(width + 1))
+
+      .x$constitutive_sequence_df <- getfasta_output
+      return(.x)
+    } else {
+      .x$constitutive_sequence_df <- tibble(
+        chrom = character(),
+        start = numeric(),
+        end = numeric(),
+        width = numeric(),
+        strand = character(),
+        seq = character(),
+        nchar_plus_N_cumsum = numeric()
+      )
+      return(.x)
+    }
+  }, .progress = TRUE)
+
+## get concatenated target sequence collapsed for "N"
+tsl_pcnc_constitutive_seq_list <- tsl_pcnc_constitutive_seq_list %>%
+  map(~ {
+    if (.x$constitutive_exist == TRUE) {
+      constitutive_seq_Ncollapsed <- .x$constitutive_sequence_df %>%
+        pull(seq) %>%
+        paste0(collapse = "N")
+      .x$constitutive_seq_Ncollapsed <- constitutive_seq_Ncollapsed
+      return(.x)
+    } else {
+      .x$constitutive_seq_Ncollapsed <- NULL
+      return(.x)
+    }
+  }, .progress = TRUE)
+
+tsl_pcnc_constitutive_seq_list[[301]]
+
+## save 
+tsl_pcnc_constitutive_seq_list %>%
+  qsave(paste0("./data/RNA-structure/Hsap/Hsap_ensembl_v",
+               release_version,
+               "_tsl_proteincoding_noncoding_constitutive-sequence_list.qs")
+  )
+
+```
+
+
+
+## Exploring the constitutive region dataset
+
+### Summary of isoform constitutive mappings
+
+```{r}
+# - - - - - Full isoforms
+pcnc_constitutive_seq_list <- 
+  qread(paste0("./data/RNA-structure/Hsap/Hsap_ensembl_v",
+               release_version,
+               "_proteincoding_noncoding_constitutive-sequence_list.qs")
+  )
+
+## Summary dataframe
+pcnc_constitutive_summary_df <- pcnc_constitutive_seq_list %>%
+  imap_dfr(~{
+    tibble(
+      gene_id = .x$gene_id,
+      gene_name = .x$gene_name,
+      gene_biotype = .x$gene_biotype,
+      strand = .x$strand,
+      isoform_count = .x$isoform_count,
+      constitutive_exist = .x$constitutive_exist,
+      constitutive_length = .x$constitutive_length,
+      constitutive_seq_Ncollapsed = ifelse(is.null(.x$constitutive_seq_Ncollapsed), 
+                                           "NA", 
+                                           as.character(.x$constitutive_seq_Ncollapsed))
+    )
+  }, .progress = TRUE) %>%
+  mutate(constitutive_exist_over_500 = if_else(constitutive_length > 500, TRUE, FALSE)) %>%
+  mutate(constitutive_exist_over_2k = if_else(constitutive_length > 2000, TRUE, FALSE))
+
+write_csv(pcnc_constitutive_summary_df, paste0("./data/RNA-structure/Hsap/Hsap_ensembl_v",
+                                               release_version,
+                                               "_proteincoding_noncoding_constitutive-sequence_summary.csv")
+)
+
+## Summary plots
+pcnc_constitutive_summary_df %>%
+  ggplot(aes(x = gene_biotype, fill = constitutive_exist_over_500)) +
+  geom_bar(position = position_stack()) + 
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_stack(), vjust = -0.5) + 
+  labs(title = "Constitutive sequence over 500nt exist?") + 
+  theme_bw(base_size = 15) 
+
+ggsave("./data/RNA-structure/Hsap/plots/plot_constitutive-length-over-500nt.pdf")
+
+pcnc_constitutive_summary_df %>%
+  ggplot(aes(x = gene_biotype, fill = constitutive_exist_over_2k)) +
+  geom_bar(position = position_stack()) + 
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_stack(), vjust = -0.5) + 
+  labs(title = "Constitutive sequence over 2000nt exist?") + 
+  theme_bw(base_size = 15) 
+
+ggsave("./data/RNA-structure/Hsap/plots/plot_constitutive-length-over-2000nt.pdf")
+
+pcnc_constitutive_summary_df %>%
+  ggplot(aes(x = constitutive_length)) +
+  geom_histogram() + 
+  scale_x_log10() +
+  facet_wrap(~ constitutive_exist + gene_biotype) +
+  labs(title = "Have constitutive sequence?") + 
+  theme_bw(base_size = 15)
+
+ggsave("./data/RNA-structure/Hsap/plots/plot_constitutive-length-histogram.pdf")
+
+# - - - - - TSL-supported isoforms
+tsl_pcnc_constitutive_seq_list <- qread("./data/RNA-structure/Hsap/Hsap_ensembl_v113_tsl_proteincoding_noncoding_constitutive-sequence_list.qs")
+
+## Summary dataframe
+tsl_pcnc_constitutive_summary_df <- tsl_pcnc_constitutive_seq_list %>%
+  imap_dfr(~{
+    tibble(
+      gene_id = .x$gene_id,
+      gene_name = .x$gene_name,
+      gene_biotype = .x$gene_biotype,
+      strand = .x$strand,
+      isoform_count = .x$tsl_isoform_count,
+      constitutive_exist = .x$constitutive_exist,
+      constitutive_length = .x$constitutive_length,
+      constitutive_seq_Ncollapsed = ifelse(is.null(.x$constitutive_seq_Ncollapsed), 
+                                           "NA", 
+                                           as.character(.x$constitutive_seq_Ncollapsed))
+    )
+  }, .progress = TRUE) %>%
+  mutate(constitutive_exist_over_500 = if_else(constitutive_length > 500, TRUE, FALSE)) %>%
+  mutate(constitutive_exist_over_2k = if_else(constitutive_length > 2000, TRUE, FALSE))
+
+write_csv(tsl_pcnc_constitutive_summary_df, paste0("./data/RNA-structure/Hsap/Hsap_ensembl_v",
+                                               release_version,
+                                               "_tsl_proteincoding_noncoding_constitutive-sequence_summary.csv")
+)
+
+## Summary plots
+tsl_pcnc_constitutive_summary_df %>%
+  ggplot(aes(x = gene_biotype, fill = constitutive_exist_over_500)) +
+  geom_bar(position = position_stack()) + 
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_stack(), vjust = -0.5) + 
+  labs(title = "Constitutive sequence over 500nt exist?") + 
+  theme_bw(base_size = 15) 
+
+ggsave("./data/RNA-structure/Hsap/plots/plot_tsl_constitutive-length-over-500nt.pdf")
+
+tsl_pcnc_constitutive_summary_df %>%
+  ggplot(aes(x = gene_biotype, fill = constitutive_exist_over_2k)) +
+  geom_bar(position = position_stack()) + 
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_stack(), vjust = -0.5) + 
+  labs(title = "Constitutive sequence over 2000nt exist?") + 
+  theme_bw(base_size = 15) 
+
+ggsave("./data/RNA-structure/Hsap/plots/plot_tsl_constitutive-length-over-2000nt.pdf")
+
+tsl_pcnc_constitutive_summary_df %>%
+  ggplot(aes(x = constitutive_length)) +
+  geom_histogram() + 
+  scale_x_log10() +
+  facet_wrap(~ constitutive_exist + gene_biotype) +
+  labs(title = "Have constitutive sequence?") + 
+  theme_bw(base_size = 15)
+
+ggsave("./data/RNA-structure/Hsap/plots/plot_tsl_constitutive-length-histogram.pdf")
+
+
+```
+
+### Plotting transcript architecture
+
+```{r}
+pcnc_constitutive_seq_list <- qread("./data/RNA-structure/Hsap/Hsap_ensembl_v113_proteincoding_noncoding_constitutive-sequence_list.qs")
+
+tsl_pcnc_constitutive_seq_list <- qread("./data/RNA-structure/Hsap/Hsap_ensembl_v113_tsl_proteincoding_noncoding_constitutive-sequence_list.qs")
+
+## helper function
+plot_isoforms <- function(pcnc_seq, gene_name, colour_tsl_score = TRUE){
+  list_element <- pcnc_seq %>% 
+    purrr::keep(~.x[["gene_name"]] %in% gene_name) %>% pluck(1)
+  
+  if(colour_tsl_score){
+  list_element$exon_intervals %>% ggplot() +
+      geom_segment(
+        aes(x = min(list_element$exon_intervals$start), 
+            xend = max(list_element$exon_intervals$end), 
+            y = reorder(transcript_id, -transcript_support_level), 
+            yend = reorder(transcript_id, -transcript_support_level)),
+        linewidth = 0.5, colour = "gray80"
+      ) +
+      geom_segment(
+        data = list_element$exon_intervals,
+        aes(x = start, xend = end, y = reorder(transcript_id, -transcript_support_level), yend = reorder(transcript_id, -transcript_support_level), colour = as.factor(transcript_support_level)),
+        linewidth = 3, 
+        inherit.aes = FALSE
+      ) +
+      geom_segment(
+        data = list_element$constitutive_intervals, 
+        aes(x = start, xend = end, y = "CONSTITUTIVE", yend = "CONSTITUTIVE"),
+        linewidth = 7, colour = "coral", 
+        inherit.aes = FALSE
+      ) + 
+      colorspace::scale_colour_discrete_qualitative(palette = "Dark 3", na.value = "gray40") +
+      labs(
+        title = paste0(
+          list_element$gene_id, " ", 
+          list_element$gene_name, " ", 
+          list_element$strand, "ve strand ",
+          paste0("(constitutive ", list_element$constitutive_length, "nt)")
+        ),
+        x = "Chromosomal coordinate",
+        y = "Transcript ID",
+        colour = "TSL score"
+      ) + 
+      theme_bw()
+  } else {
+    list_element$exon_intervals %>% ggplot() +
+      geom_segment(
+        aes(x = min(list_element$exon_intervals$start), 
+            xend = max(list_element$exon_intervals$end), 
+            y = reorder(transcript_id, -transcript_support_level), 
+            yend = reorder(transcript_id, -transcript_support_level)),
+        linewidth = 0.5, colour = "gray80"
+      ) +
+      geom_segment(
+        data = list_element$exon_intervals,
+        aes(x = start, xend = end, y = reorder(transcript_id, -transcript_support_level), yend = reorder(transcript_id, -transcript_support_level)),
+        colour = "gray40",
+        linewidth = 3, 
+        inherit.aes = FALSE
+      ) +
+      geom_segment(
+        data = list_element$constitutive_intervals, 
+        aes(x = start, xend = end, y = "CONSTITUTIVE", yend = "CONSTITUTIVE"),
+        linewidth = 7, colour = "coral", 
+        inherit.aes = FALSE
+      ) + 
+      labs(
+        title = paste0(
+          list_element$gene_id, " ", 
+          list_element$gene_name, " ", 
+          list_element$strand, "ve strand ",
+          paste0("(constitutive ", list_element$constitutive_length, "nt)")
+        ),
+        x = "Chromosomal coordinate",
+        y = "Transcript ID",
+        colour = "TSL score"
+      ) + 
+      theme_bw()
+  }
+}
+
+plot_isoforms(pcnc_constitutive_seq_list, "OAS1", colour_tsl_score = TRUE)
+plot_isoforms(tsl_pcnc_constitutive_seq_list, "TMPRSS2", colour_tsl_score = TRUE)
+
+
+
+## Explore some plots
+library(patchwork)
+
+# pcnc_constitutive_seq_list %>%
+#   purrr::keep(~ .x$gene_name %in% c("SYNCRIP", "PURA", "PURB", "OAS1")) %>%
+#   map(plot_isoforms) %>%
+#   wrap_plots()
+
+ggsave("./data/RNA-structure/Hsap/plots/plot_constitutive_txplot-example.pdf", width = 12, height = 9)
+
+## there's a gene without a name (NA gives == a error) ENST00000456270
+
+
+
+
+tsl_pcnc_constitutive_seq_list[["ENSG00000185129"]]
+
+x$exon_intervals %>% View()
+  
+  
+```
+
+### Retrieving constitutive sequence of a gene 
+
+```{r}
+pcnc_constitutive_seq_list <- 
+  qread(paste0("./data/RNA-structure/Hsap/Hsap_ensembl_v",
+               release_version,
+               "_proteincoding_noncoding_constitutive-sequence_list.qs")
+  )
+
+gene_id <- "FBgn0025790"
+output_fasta_path <- "~/Desktop.fa"
+
+fasta_lines <- c(
+  paste(
+   ">", gene_id, 
+   pluck(pcnc_constitutive_list, gene_id) %>% pluck("gene_name"),  
+   "RNA isoform-consitutive sequence (N collapsed)" 
+  ),
+  pluck(pcnc_constitutive_seq_list, gene_id) %>% pluck("constitutive_seq_Ncollapsed")
+)
+
+write_lines(fasta_lines, output_fasta_path)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

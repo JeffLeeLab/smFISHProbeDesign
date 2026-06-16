@@ -100,8 +100,12 @@ smFISHProbeDesign/
 
 | File | Purpose |
 |------|---------|
-| `app.py` | Main Streamlit UI — sidebar parameters, single/batch mode, result display |
+| `app.py` | Multipage entry point — 3 top-nav buttons: smFISH, HCR, Isoform Explorer |
 | `utils.py` | Backend helpers — FASTA validation, `run_design()`, `run_batch()`, prerequisite checks |
+| `isoform_data.py` | Data-access helpers + matplotlib plot for the Isoform Explorer page |
+| `pages/smfish.py` | smFISH probe design page |
+| `pages/hcr.py` | HCR split-initiator probe design page |
+| `pages/isoform_explorer.py` | Isoform Explorer page (self-contained, no probe-design code paths) |
 | `README.md` | Quick launch instructions (full docs in root README) |
 
 **Running the app**:
@@ -115,6 +119,7 @@ streamlit run streamlit_app/app.py
 - **Mixed-length support**: Toggle "Mixed range" in sidebar to use variable-length probes (e.g. 18-22bp)
 - **Masking options**: Pseudogene mask, genome mask, RepeatMasker (auto or file), low-complexity filter (homopolymer/dinucleotide thresholds)
 - **Downloads**: `_oligos.txt`, `_seq.txt`, bowtie hit files, batch summary TSV
+- **Isoform Explorer**: Browse isoform architecture for Hsap/Mmus/Dmel genes; download N-collapsed constitutive FASTA as input for probe design. Data: Ensembl v113, Parquet+zstd format under `data/isoform_explorer/`.
 
 **Parameter flow**:
 ```

@@ -28,13 +28,14 @@ st.set_page_config(
 
 # ── Navigation ───────────────────────────────────────────────────────────────
 
-smfish_page = st.Page("pages/smfish.py", title="smFISH Probe Design")
-hcr_page = st.Page("pages/hcr.py", title="HCR Probe Design")
+smfish_page    = st.Page("pages/smfish.py",          title="smFISH Probe Design")
+hcr_page       = st.Page("pages/hcr.py",             title="HCR Probe Design")
+isoform_page   = st.Page("pages/isoform_explorer.py", title="Isoform Explorer")
 
-pg = st.navigation([smfish_page, hcr_page], position="hidden")
+pg = st.navigation([smfish_page, hcr_page, isoform_page], position="hidden")
 
 # Top navigation bar
-nav_cols = st.columns([1, 1, 6])
+nav_cols = st.columns([1, 1, 2, 4])
 with nav_cols[0]:
     if st.button("smFISH", use_container_width=True,
                  type="primary" if pg.title == "smFISH Probe Design" else "secondary"):
@@ -43,6 +44,10 @@ with nav_cols[1]:
     if st.button("HCR", use_container_width=True,
                  type="primary" if pg.title == "HCR Probe Design" else "secondary"):
         st.switch_page(hcr_page)
+with nav_cols[2]:
+    if st.button("Isoform-explorer", use_container_width=True,
+                 type="primary" if pg.title == "Isoform Explorer" else "secondary"):
+        st.switch_page(isoform_page)
 st.divider()
 
 pg.run()

@@ -22,6 +22,7 @@ ProbeDesign creates oligonucleotide probes for single molecule RNA FISH experime
 - ✅ Allow bowtie result output
 - ✅ Implement HCRv3 probe design algorithms from the RShiny scripts
 - ✅ Host test streamlit application on Glasgow VM
+- ✅ Implement Isoform Explorer — browse constitutive sequences and download FASTA for probe design (Ensembl v113, Hsap/Mmus/Dmel)
 
 
 **In Development / Planned**
@@ -182,6 +183,19 @@ streamlit run streamlit_app/app.py
 ### Mixed-Length Probes
 
 Select **Mixed range** under "Oligo length mode" to use variable-length probes (e.g. 18-22 bp). This maximises probe count on sequences with variable GC content — GC-rich regions get shorter probes, AT-rich regions get longer probes, all within the same Gibbs FE target range.
+
+### Isoform Explorer
+
+The **Isoform Explorer** tab (top navigation bar) lets you inspect the isoform architecture of any gene and identify whether a constitutive sequence exists — a region shared by all isoforms — for use as probe-design input.
+
+**Workflow**:
+1. Select species (Human, Mouse, or Drosophila) and search for a gene by name or Ensembl ID.
+2. The isoform structure plot shows all transcripts coloured by Transcript Support Level (TSL) for mammals. Isoforms excluded by the adaptive TSL filter are de-emphasised.
+3. If a constitutive sequence exists, copy it from the sequence box or download the FASTA.
+4. Paste the FASTA into the **smFISH** or **HCR** designer — the N markers at exon–exon junctions prevent probes from spanning junctions.
+
+**Data**: Ensembl v113 · Hsap 55,184 genes · Mmus 54,705 genes · Dmel 16,797 genes.
+Mammalian data uses an adaptive TSL filter (TSL ≤ 2 where available, otherwise the best available level). The FASTA header records the per-gene TSL cutoff applied.
 
 ---
 

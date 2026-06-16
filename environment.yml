@@ -41,3 +41,5 @@ dependencies:
   - pip:
     - streamlit>=1.32
     - pandas>=1.5
+    - pyarrow>=14.0
+    - matplotlib>=3.8
