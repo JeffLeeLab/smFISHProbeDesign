@@ -197,6 +197,14 @@ The **Isoform Explorer** tab (top navigation bar) lets you inspect the isoform a
 **Data**: Ensembl v113 · Hsap 55,184 genes · Mmus 54,705 genes · Dmel 16,797 genes.
 Mammalian data uses an adaptive TSL filter (TSL ≤ 2 where available, otherwise the best available level). The FASTA header records the per-gene TSL cutoff applied.
 
+### TransQuant
+
+The **TransQuant** tab (top navigation bar) embeds the [TransQuant probe-weight tool](https://github.com/JeffLeeLab/TransQuant-probe-weight) (external `transquant_w` package). Given the full genomic locus of a gene and a probe set, it computes the **probe weight factor W** (corrects transcription-site brightness for where probes bind relative to Pol II), the **gene length L**, and the **probe localisation profile N** — following the TransQuant methodology (Bahar Halpern & Itzkovitz, *Methods* 2016). It is fully self-contained — no inputs or results are shared with the smFISH / HCR / Isoform Explorer tabs.
+
+A standalone, browser-only version (no install needed) is hosted at [jeffleelab.github.io/TransQuant-probe-weight](https://jeffleelab.github.io/TransQuant-probe-weight/).
+
+The embedded version is pinned to a release tag in `environment.yml` (`git+https://github.com/JeffLeeLab/TransQuant-probe-weight.git@v0.2.0`). To update it: bump the `@<tag>` in `environment.yml`, then re-run `./setup_all.sh` or `pip install --upgrade "git+https://github.com/JeffLeeLab/TransQuant-probe-weight.git@<new-tag>"` inside the `probedesign` environment.
+
 ---
 
 ## 4. Command-Line Interface

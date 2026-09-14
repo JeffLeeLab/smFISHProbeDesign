@@ -100,12 +100,13 @@ smFISHProbeDesign/
 
 | File | Purpose |
 |------|---------|
-| `app.py` | Multipage entry point — 3 top-nav buttons: smFISH, HCR, Isoform Explorer |
+| `app.py` | Multipage entry point — 4 top-nav buttons: smFISH, HCR, Isoform Explorer, TransQuant |
 | `utils.py` | Backend helpers — FASTA validation, `run_design()`, `run_batch()`, prerequisite checks |
 | `isoform_data.py` | Data-access helpers + matplotlib plot for the Isoform Explorer page |
 | `pages/smfish.py` | smFISH probe design page |
 | `pages/hcr.py` | HCR split-initiator probe design page |
 | `pages/isoform_explorer.py` | Isoform Explorer page (self-contained, no probe-design code paths) |
+| `pages/transquant.py` | TransQuant probe-weight tool page (self-contained; imports `transquant_w.ui.render()` lazily) |
 | `README.md` | Quick launch instructions (full docs in root README) |
 
 **Running the app**:
@@ -120,6 +121,7 @@ streamlit run streamlit_app/app.py
 - **Masking options**: Pseudogene mask, genome mask, RepeatMasker (auto or file), low-complexity filter (homopolymer/dinucleotide thresholds)
 - **Downloads**: `_oligos.txt`, `_seq.txt`, bowtie hit files, batch summary TSV
 - **Isoform Explorer**: Browse isoform architecture for Hsap/Mmus/Dmel genes; download N-collapsed constitutive FASTA as input for probe design. Data: Ensembl v113, Parquet+zstd format under `data/isoform_explorer/`.
+- **TransQuant tab**: Embeds the external `transquant_w` package (`from transquant_w.ui import render`) to compute the probe weight factor W, gene length L, and probe localisation profile for an smFISH probe set. Fully independent — no data handoff to/from the other tabs. Pinned via a `git+...@<tag>` pip entry in `environment.yml`. **To update**: bump the tag in `environment.yml`, then `pip install --upgrade "git+https://github.com/JeffLeeLab/TransQuant-probe-weight.git@<new-tag>"` in the `probedesign` env (or re-run `setup_all.sh`).
 
 **Parameter flow**:
 ```

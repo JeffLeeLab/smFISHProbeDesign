@@ -159,6 +159,13 @@ run_in_env pip install -e . --quiet
 echo -e "${GREEN}probedesign $(run_in_env probedesign --version 2>&1 | tail -1)${NC}"
 echo ""
 
+# Explicit safety net for the TransQuant tab's pip dependency: some
+# conda/mamba versions don't reliably re-resolve git+ URLs in the
+# environment.yml "pip:" section on `env update --prune` for existing
+# environments. This re-installs/updates it directly (idempotent —
+# no-op if already at the pinned tag).
+run_in_env pip install --quiet "git+https://github.com/JeffLeeLab/TransQuant-probe-weight.git@v0.2.0"
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 3 — Build pseudogene indices (bowtie-build from shipped FASTAs)
 # ══════════════════════════════════════════════════════════════════════════════

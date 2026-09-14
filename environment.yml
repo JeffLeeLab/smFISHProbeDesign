@@ -43,3 +43,7 @@ dependencies:
     - pandas>=1.5
     - pyarrow>=14.0
     - matplotlib>=3.8
+    # TransQuant probe-weight tool (embedded as the "TransQuant" tab).
+    # To update: bump the @<tag> below to the desired release, then
+    # re-run setup_all.sh (or `pip install --upgrade` the same URL).
+    - git+https://github.com/JeffLeeLab/TransQuant-probe-weight.git@v0.2.0
