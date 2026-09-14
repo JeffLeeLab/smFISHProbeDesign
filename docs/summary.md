@@ -21,12 +21,12 @@
 
 All steps below are automated in [`setup_all.sh`](setup_all.sh). This section explains what each step does.
 
-### 1.1 Micromamba Environment
+### 1.1 Mamba Environment
 
-We use **micromamba** (a lightweight conda alternative) to create an isolated environment with pinned versions of Python, Bowtie 1, and the CLI framework.
+We use **mamba** (a lightweight conda alternative) to create an isolated environment with pinned versions of Python, Bowtie 1, and the CLI framework.
 
 ```bash
-micromamba create -n probedesign \
+mamba create -n probedesign \
     -c conda-forge -c bioconda \
     --channel-priority strict \
     python=3.11 \
@@ -43,7 +43,7 @@ micromamba create -n probedesign \
 | bowtie | 1.3.1 | bioconda | Short-read aligner for masking |
 | pytest | ≥ 7.0 | conda-forge | Test runner |
 
-**Why micromamba?** It resolves dependencies faster than conda/mamba and works well on Apple Silicon Macs.
+**Why mamba?** It resolves dependencies faster than conda and works well on Apple Silicon Macs.
 
 **Why `--channel-priority strict`?** Prevents cross-channel conflicts between `conda-forge` and `bioconda`. Without this, the solver can pick incompatible builds.
 
@@ -54,19 +54,19 @@ micromamba create -n probedesign \
 The preferred way is via the environment file (handles all dependencies in one step):
 
 ```bash
-# Using micromamba / mamba / conda (auto-detected by setup_all.sh):
-micromamba env create -f environment.yml
-micromamba activate probedesign
+# Using mamba / conda (auto-detected by setup_all.sh):
+mamba env create -f environment.yml
+mamba activate probedesign
 pip install -e .
 ```
 
 Or to create the environment manually:
 
 ```bash
-micromamba create -n probedesign \
+mamba create -n probedesign \
     -c conda-forge -c bioconda --channel-priority strict \
     python=3.11 "click>=8.0" bowtie=1.3.1 "pytest>=7.0" -y
-micromamba activate probedesign
+mamba activate probedesign
 pip install -e .
 pip install "streamlit>=1.32" "pandas>=1.5"
 ```
@@ -143,7 +143,7 @@ rm -f BDGP6.zip
 RepeatMasker is only needed for the `--repeatmask` automatic mode. If you always supply a pre-masked FASTA file via `--repeatmask-file`, you can skip this.
 
 ```bash
-micromamba install -n probedesign -c bioconda -c conda-forge repeatmasker -y
+mamba install -n probedesign -c bioconda -c conda-forge repeatmasker -y
 ```
 
 You then need the Dfam database partition for your species:
@@ -188,7 +188,7 @@ On macOS, `brew install bowtie` installs a **file manager GUI app**, not the bio
 brew install bowtie
 
 # CORRECT (installs the bioinformatics aligner)
-micromamba install -c bioconda bowtie=1.3.1
+mamba install -c bioconda bowtie=1.3.1
 ```
 
 Verify you have the right one:
@@ -212,10 +212,10 @@ The Drosophila genome index from AWS extracts as `BDGP6.*`, which must be rename
 
 ### 2.4 Channel Priority is Critical for Conda
 
-Without `--channel-priority strict`, conda/micromamba may resolve the `bowtie` package from the wrong channel and install an incompatible or incorrect version. Always use:
+Without `--channel-priority strict`, conda/mamba may resolve the `bowtie` package from the wrong channel and install an incompatible or incorrect version. Always use:
 
 ```bash
-micromamba create ... -c conda-forge -c bioconda --channel-priority strict ...
+mamba create ... -c conda-forge -c bioconda --channel-priority strict ...
 ```
 
 ---
@@ -228,7 +228,7 @@ A Streamlit-based web GUI was built at `streamlit_app/` to make ProbeDesign acce
 
 **Launch**:
 ```bash
-micromamba activate probedesign
+mamba activate probedesign
 streamlit run streamlit_app/app.py
 ```
 
@@ -363,7 +363,7 @@ All changes are **additive** — no existing function signatures were broken, an
 
 | Component | Disk usage | Setup time |
 |-----------|-----------|------------|
-| Micromamba environment | ~500 MB | ~5 min |
+| Mamba environment | ~500 MB | ~5 min |
 | Pseudogene indices (3 species) | 84 MB | ~47 s |
 | Genome indices (3 species) | 6.7 GB | ~12 min |
 | RepeatMasker + Dfam partition 7 | ~56 GB | ~30 min |
@@ -377,11 +377,11 @@ All changes are **additive** — no existing function signatures were broken, an
 ### Create / Activate Environment
 ```bash
 # Create from environment.yml (first time):
-micromamba env create -f environment.yml
+mamba env create -f environment.yml
 pip install -e .
 
 # Activate (every session):
-micromamba activate probedesign   # or: mamba / conda activate probedesign
+mamba activate probedesign   # or: conda activate probedesign
 ```
 
 ### Design Probes (CLI)

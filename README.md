@@ -48,7 +48,7 @@ ProbeDesign creates oligonucleotide probes for single molecule RNA FISH experime
 ## 1. Quick Start
 
 ```bash
-# 1. Install a package manager (micromamba, mamba, or conda)
+# 1. Install a package manager (mamba or conda)
 #    See Section 2 for details
 
 # 2. Clone and set up
@@ -58,7 +58,7 @@ chmod +x setup_all.sh
 ./setup_all.sh          # ~18 min first run (downloads genome indices)
 
 # 3. Launch the web app
-micromamba activate probedesign   # or: mamba / conda activate probedesign
+mamba activate probedesign   # or: conda activate probedesign
 streamlit run streamlit_app/app.py
 
 # 4. Or use the CLI
@@ -79,19 +79,13 @@ probedesign design input.fa --probes 48 --pseudogene-mask --genome-mask
 
 ### Step 1 — Install a Package Manager
 
-You need **one** of `micromamba`, `mamba`, or `conda`. The setup script auto-detects whichever is available.
+You need **one** of `mamba` or `conda`. The setup script auto-detects whichever is available.
 
 **Option A — Miniforge** (recommended):
 
 1. Download from [github.com/conda-forge/miniforge/releases/latest](https://github.com/conda-forge/miniforge/releases/latest)
 2. Run: `bash ~/Downloads/Miniforge3-*.sh`
 3. Restart terminal, verify: `conda --version`
-
-**Option B — micromamba** (lighter):
-
-```bash
-"${SHELL}" <(curl -L micro.mamba.pm/install.sh)
-```
 
 ### Step 2 — Clone and Run Setup
 
@@ -115,25 +109,25 @@ To skip the 6.7 GB genome download: `./setup_all.sh --skip-genome`
 
 ```bash
 # Create environment from environment.yml
-micromamba env create -f environment.yml   # or: mamba / conda env create -f environment.yml
-micromamba activate probedesign
+mamba env create -f environment.yml   # or: conda env create -f environment.yml
+mamba activate probedesign
 pip install -e .
 
 # Update an existing environment
-micromamba env update -n probedesign -f environment.yml --prune
+mamba env update -n probedesign -f environment.yml --prune
 
 # Remove and recreate from scratch
-micromamba env remove -n probedesign
-micromamba env create -f environment.yml
+mamba env remove -n probedesign
+mamba env create -f environment.yml
 ```
 
 Without `environment.yml`:
 
 ```bash
-micromamba create -n probedesign \
+mamba create -n probedesign \
     -c conda-forge -c bioconda --channel-priority strict \
     python=3.11 "click>=8.0" bowtie=1.3.1 -y
-micromamba activate probedesign
+mamba activate probedesign
 pip install -e .
 pip install "streamlit>=1.32" "pandas>=1.5"
 ```
@@ -147,7 +141,7 @@ The primary interface for probe design is a Streamlit web application.
 ### Launch
 
 ```bash
-micromamba activate probedesign   # or mamba / conda
+mamba activate probedesign   # or conda
 streamlit run streamlit_app/app.py
 # Opens http://localhost:8501
 ```
@@ -366,8 +360,8 @@ Each block shows:
 
 | Problem | Solution |
 |---------|----------|
-| `micromamba / conda: command not found` | Restart terminal after installing; re-run installer if needed |
-| `bowtie: command not found` | Activate environment: `micromamba activate probedesign` |
+| `mamba / conda: command not found` | Restart terminal after installing; re-run installer if needed |
+| `bowtie: command not found` | Activate environment: `mamba activate probedesign` |
 | Wrong bowtie (file manager, not aligner) | Only install via bioconda, not homebrew |
 | Setup fails at pseudogene indices | Check `probedesign/pseudogeneDBs/*.fasta` exist |
 | Genome download interrupted | Re-run `./setup_all.sh` (resumes automatically) |

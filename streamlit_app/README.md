@@ -6,7 +6,7 @@
 
 ```bash
 # Activate the probedesign environment
-micromamba activate probedesign   # or: mamba activate probedesign / conda activate probedesign
+mamba activate probedesign   # or: conda activate probedesign
 
 # From the repository root:
 streamlit run streamlit_app/app.py

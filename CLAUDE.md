@@ -48,11 +48,11 @@ ProbeDesign designs oligonucleotide probes for single molecule RNA FISH experime
 
 ## Environment Setup
 
-**Always use the user's virtual environment.** Search for `micromamba`, `mamba`, or `conda` probedesign environment. Never install Python packages to the user's base CLI environment.
+**Always use the user's virtual environment.** Search for `mamba` or `conda` probedesign environment. Never install Python packages to the user's base CLI environment.
 
 ```bash
 # Activate environment
-micromamba activate probedesign   # or: mamba / conda activate probedesign
+mamba activate probedesign   # or: conda activate probedesign
 
 # Setup from scratch
 chmod +x setup_all.sh && ./setup_all.sh
@@ -64,7 +64,9 @@ streamlit run streamlit_app/app.py
 probedesign design input.fa --probes 48
 ```
 
-The `setup_all.sh` script (in repo root) auto-detects micromamba/mamba/conda, creates the environment from `environment.yml`, installs the package, builds pseudogene indices, and downloads genome indices.
+In non-interactive shells, activation may be unavailable — call the env's interpreter directly, e.g. `~/miniforge3/envs/probedesign/bin/python`.
+
+The `setup_all.sh` script (in repo root) auto-detects mamba/conda, creates the environment from `environment.yml`, installs the package, builds pseudogene indices, and downloads genome indices.
 
 ## Repository Structure
 

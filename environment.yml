@@ -4,15 +4,14 @@
 # NOT supported natively: Windows (use WSL2 — see README.md)
 #
 # Create the environment:
-#   micromamba env create -f environment.yml
-#   mamba     env create -f environment.yml
-#   conda     env create -f environment.yml
+#   mamba env create -f environment.yml
+#   conda env create -f environment.yml
 #
 # Then install the probedesign package (from the repo root):
-#   micromamba run -n probedesign pip install -e .
+#   mamba run -n probedesign pip install -e .
 #
 # Activate and launch:
-#   micromamba activate probedesign   (or: mamba / conda activate probedesign)
+#   mamba activate probedesign   (or: conda activate probedesign)
 #   streamlit run streamlit_app/app.py
 
 name: probedesign
