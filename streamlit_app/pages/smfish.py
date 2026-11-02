@@ -33,6 +33,9 @@ from utils import (
     clean_name_for_prefix,
     extract_first_fasta_header,
     mask_warnings,
+    idt_plate_for_run,
+    IDT_BUTTON_HELP,
+    XLSX_MIME,
 )
 from probedesign.output import (
     format_oligos_content,
@@ -304,7 +307,7 @@ def _show_single_results():
         st.subheader("Download Files")
         oligos_content = format_oligos_content(result)
 
-        dcol1, dcol2 = st.columns(2)
+        dcol1, dcol2, dcol3 = st.columns(3)
         with dcol1:
             st.download_button(
                 label="Download oligos.txt",
@@ -321,6 +324,22 @@ def _show_single_results():
                 mime="text/plain",
                 key="smfish_dl_seq",
             )
+        with dcol3:
+            try:
+                idt_name, idt_xlsx, idt_warnings = idt_plate_for_run(oligos_content)
+            except ImportError as e:
+                st.caption(str(e))
+            else:
+                st.download_button(
+                    label="Download IDT plate (.xlsx)",
+                    data=idt_xlsx,
+                    file_name=idt_name,
+                    mime=XLSX_MIME,
+                    key="smfish_dl_idt",
+                    help=IDT_BUTTON_HELP,
+                )
+                for w in idt_warnings:
+                    st.caption(w)
 
         hits_files = format_hits_content(result)
         for suffix, content in hits_files.items():

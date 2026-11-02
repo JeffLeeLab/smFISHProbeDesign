@@ -25,6 +25,12 @@ from probedesign.hcr_output import (
     format_hcr_hits,
 )
 from probedesign.provenance import failed_masks
+from probedesign.idt import (
+    build_plates,
+    parse_oligos_text,
+    plate_filename,
+    write_plates_xlsx,
+)
 from probedesign.masking import (
     GENOME_INDEXES,
     PSEUDOGENE_INDEXES,
@@ -32,6 +38,26 @@ from probedesign.masking import (
     find_repeatmasker,
     run_repeatmasker,
 )
+
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+IDT_BUTTON_HELP = (
+    "Excel file for IDT's 96-well plate upload, this probe set only. "
+    "To put several probe sets on one order, use the IDT Plate tab."
+)
+
+
+# --- IDT plate export ---
+
+
+def idt_plate_for_run(oligos_text: str) -> Tuple[str, bytes, List[str]]:
+    """IDT plate order for one run: (file name, .xlsx bytes, warnings).
+
+    Takes the run's _oligos.txt / _HCR_oligos.txt content, so the plate
+    carries exactly the names and sequences of the downloaded oligos file.
+    Raises ImportError if openpyxl is missing.
+    """
+    plates, warnings = build_plates([parse_oligos_text(oligos_text)])
+    return plate_filename(plates), write_plates_xlsx(plates), warnings
 
 
 # --- Name helpers ---

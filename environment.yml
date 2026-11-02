@@ -38,10 +38,11 @@ dependencies:
   # ── Web app dependencies ─────────────────────────────────────────────────────
   - pip
   - pip:
-    - streamlit>=1.32
+    - streamlit>=1.48        # horizontal containers (top nav)
     - pandas>=1.5
     - pyarrow>=14.0
     - matplotlib>=3.8
+    - openpyxl>=3.1          # IDT plate order export (.xlsx)
     # TransQuant probe-weight tool (embedded as the "TransQuant" tab).
     # To update: bump the @<tag> below to the desired release, then
     # re-run setup_all.sh (or `pip install --upgrade` the same URL).

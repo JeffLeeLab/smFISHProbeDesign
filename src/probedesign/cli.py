@@ -533,5 +533,56 @@ def analyze(input_file: str, oligo_length: int):
     click.echo(f"Invalid positions: {invalid_count}")
 
 
+@main.command()
+@click.argument(
+    'oligo_files', nargs=-1, required=True,
+    type=click.Path(exists=True, dir_okay=False),
+)
+@click.option(
+    '-o', '--output-dir',
+    default='.',
+    type=click.Path(file_okay=False),
+    help='Directory for the plate file (default: current directory)'
+)
+@click.option(
+    '--min-oligos',
+    default=24,
+    type=click.IntRange(0, 96),
+    help='IDT minimum oligos per plate: 24 for standard 96-well plates, '
+         '48 for HOTPlates (default: 24)'
+)
+def idtplate(oligo_files, output_dir: str, min_oligos: int):
+    """Build an IDT 96-well plate order file (.xlsx) from oligo files.
+
+    OLIGO_FILES are _oligos.txt / _HCR_oligos.txt files, or batch-result .zip
+    files, in plate order. Each probe set starts on a new column and stays on
+    one plate; each plate is a worksheet named after its genes.
+    """
+    from .idt import build_plates, plate_filename, read_oligo_sets, write_plates_xlsx
+
+    sets = []
+    for path in oligo_files:
+        try:
+            sets.extend(read_oligo_sets(Path(path).name, Path(path).read_bytes()))
+        except ValueError as e:
+            raise click.ClickException(str(e))
+
+    plates, warnings = build_plates(sets, min_oligos=min_oligos)
+    out_path = Path(output_dir) / plate_filename(plates)
+    try:
+        data = write_plates_xlsx(plates)
+    except ImportError as e:
+        raise click.ClickException(str(e))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(data)
+
+    for plate in plates:
+        sets_desc = ", ".join(f"{s.name} ({len(s.oligos)})" for s in plate.sets)
+        click.echo(f"Plate '{plate.sheet_name}': {len(plate.wells)} oligos - {sets_desc}")
+    for w in warnings:
+        click.echo(f"Warning: {w}", err=True)
+    click.echo(f"Wrote {out_path}")
+
+
 if __name__ == '__main__':
     main()

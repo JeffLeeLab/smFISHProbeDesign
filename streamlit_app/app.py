@@ -1,7 +1,7 @@
 """Streamlit GUI for ProbeDesign — multipage entry point.
 
 Builds the top navigation bar and routes between the pages in pages/
-(smFISH, HCR, Isoform Explorer, TransQuant) using st.navigation.
+(smFISH, HCR, Isoform Explorer, TransQuant, IDT Plate) using st.navigation.
 Each page owns its own sidebar.
 """
 
@@ -34,27 +34,23 @@ smfish_page    = st.Page("pages/smfish.py",          title="smFISH Probe Design"
 hcr_page       = st.Page("pages/hcr.py",             title="HCR Probe Design")
 isoform_page   = st.Page("pages/isoform_explorer.py", title="Isoform Explorer")
 transquant_page = st.Page("pages/transquant.py",      title="TransQuant")
+idt_page       = st.Page("pages/idt_plate.py",        title="IDT Plate Builder")
 
-pg = st.navigation([smfish_page, hcr_page, isoform_page, transquant_page], position="hidden")
+pg = st.navigation(
+    [smfish_page, hcr_page, isoform_page, transquant_page, idt_page], position="hidden"
+)
 
-# Top navigation bar
-nav_cols = st.columns([1, 1, 2, 1, 3])
-with nav_cols[0]:
-    if st.button("smFISH", use_container_width=True,
-                 type="primary" if pg.title == "smFISH Probe Design" else "secondary"):
-        st.switch_page(smfish_page)
-with nav_cols[1]:
-    if st.button("HCR", use_container_width=True,
-                 type="primary" if pg.title == "HCR Probe Design" else "secondary"):
-        st.switch_page(hcr_page)
-with nav_cols[2]:
-    if st.button("Isoform-explorer", use_container_width=True,
-                 type="primary" if pg.title == "Isoform Explorer" else "secondary"):
-        st.switch_page(isoform_page)
-with nav_cols[3]:
-    if st.button("TransQuant", use_container_width=True,
-                 type="primary" if pg.title == "TransQuant" else "secondary"):
-        st.switch_page(transquant_page)
+# Top navigation bar: one row of buttons, each as wide as its label
+with st.container(horizontal=True):
+    for label, page in [
+        ("smFISH", smfish_page),
+        ("HCR", hcr_page),
+        ("Isoform Explorer", isoform_page),
+        ("TransQuant", transquant_page),
+        ("IDT Plate", idt_page),
+    ]:
+        if st.button(label, type="primary" if pg.title == page.title else "secondary"):
+            st.switch_page(page)
 st.divider()
 
 pg.run()

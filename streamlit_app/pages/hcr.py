@@ -32,6 +32,9 @@ from utils import (
     clean_name_for_prefix,
     extract_first_fasta_header,
     mask_warnings,
+    idt_plate_for_run,
+    IDT_BUTTON_HELP,
+    XLSX_MIME,
 )
 from probedesign.hcr_output import (
     format_hcr_oligos,
@@ -333,7 +336,7 @@ def _show_hcr_results():
         oligos_content = format_hcr_oligos(result)
         hits_content = format_hcr_hits(result)
 
-        dcol1, dcol2, dcol3 = st.columns(3)
+        dcol1, dcol2, dcol3, dcol4 = st.columns(4)
         with dcol1:
             st.download_button(
                 label="Download HCR_oligos.txt",
@@ -358,6 +361,22 @@ def _show_hcr_results():
                 mime="text/plain",
                 key="hcr_dl_hits",
             )
+        with dcol4:
+            try:
+                idt_name, idt_xlsx, idt_warnings = idt_plate_for_run(oligos_content)
+            except ImportError as e:
+                st.caption(str(e))
+            else:
+                st.download_button(
+                    label="Download IDT plate (.xlsx)",
+                    data=idt_xlsx,
+                    file_name=idt_name,
+                    mime=XLSX_MIME,
+                    key="hcr_dl_idt",
+                    help=IDT_BUTTON_HELP,
+                )
+                for w in idt_warnings:
+                    st.caption(w)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

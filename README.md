@@ -24,6 +24,7 @@ ProbeDesign creates oligonucleotide probes for smFISH and HCR v3 split-initiator
 - ✅ Implement HCRv3 probe design algorithms from the RShiny scripts
 - ✅ Host test streamlit application on Glasgow VM
 - ✅ Implement Isoform Explorer — browse constitutive sequences and download FASTA for probe design (Ensembl v113, Hsap/Mmus/Dmel)
+- ✅ IDT 96-well plate order export — per-run button, IDT Plate tab to combine probe sets, `probedesign idtplate`
 
 
 **In Development / Planned**
@@ -131,14 +132,14 @@ mamba create -n probedesign \
     python=3.11 "click>=8.0" bowtie=1.3.1 "pytest>=7.0" -y
 mamba activate probedesign
 pip install -e .
-pip install "streamlit>=1.32" "pandas>=1.5" "pyarrow>=14.0" "matplotlib>=3.8"
+pip install "streamlit>=1.48" "pandas>=1.5" "pyarrow>=14.0" "matplotlib>=3.8" "openpyxl>=3.1"
 pip install "git+https://github.com/JeffLeeLab/TransQuant-probe-weight.git@v0.2.0"
 ```
 
 ### Running Tests
 
 ```bash
-python -m pytest tests/      # HCR unit, smFISH regression and run-header tests
+python -m pytest tests/      # HCR unit, smFISH regression, run-header and IDT plate tests
 ```
 
 `tests/test_smfish_regression.py` reproduces the reference designs in `tests/regression/` (CDKN1A, KRT19, mouseMITF). The KRT19 and mouseMITF tests need bowtie and the human/mouse indices, and are skipped without them. `setup_all.sh` also checks CDKN1A and KRT19 against the same references. `tests/test_provenance.py` covers the `#` run header in `_seq.txt` / `_HCR_seq.txt`, including that its command reproduces the design.
@@ -163,6 +164,7 @@ streamlit run streamlit_app/app.py
 2. Adjust parameters in the sidebar (probes, oligo length, masking)
 3. Click **Design Probes**
 4. Download `_oligos.txt`, `_seq.txt`, the bowtie hit tables (when masking is on), and raw bowtie files (when **Save raw bowtie output** is ticked)
+5. **Download IDT plate (.xlsx)** gives an IDT 96-well plate order for this probe set alone. To put several sets on one order, use the [IDT Plate](#idt-plate-builder) tab
 
 ### smFISH — Batch Mode
 
@@ -195,7 +197,7 @@ Select **Mixed range** under "Oligo length mode" to use variable-length probes (
 
 ### HCR
 
-The **HCR** tab designs HCR v3 split-initiator probe pairs. Each pair is two 25-nt probes separated by a 2-nt gap on the target, with half-initiator sequences attached. The two halves hybridise independently, so ΔG targets apply **per 25-nt half**. Single and batch modes work as for smFISH. Downloads are `_HCR_oligos.txt`, `_HCR_seq.txt` and `_HCR_hits.txt`; batch mode adds a ZIP and `hcr_batch_summary.tsv`.
+The **HCR** tab designs HCR v3 split-initiator probe pairs. Each pair is two 25-nt probes separated by a 2-nt gap on the target, with half-initiator sequences attached. The two halves hybridise independently, so ΔG targets apply **per 25-nt half**. Single and batch modes work as for smFISH. Downloads are `_HCR_oligos.txt`, `_HCR_seq.txt`, `_HCR_hits.txt` and an IDT plate order (`.xlsx`, full oligos with initiators); batch mode adds a ZIP and `hcr_batch_summary.tsv`.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -230,6 +232,24 @@ The **TransQuant** tab (top navigation bar) embeds the [TransQuant probe-weight 
 A standalone, browser-only version (no install needed) is hosted at [jeffleelab.github.io/TransQuant-probe-weight](https://jeffleelab.github.io/TransQuant-probe-weight/).
 
 The embedded version is pinned to a release tag (currently `v0.2.0`). To update it, bump the `@<tag>` in all three places it appears — `environment.yml`, `setup_all.sh` and the install hint in `streamlit_app/pages/transquant.py` — then run `pip install --upgrade "git+https://github.com/JeffLeeLab/TransQuant-probe-weight.git@<new-tag>"` inside the `probedesign` environment (or re-run `./setup_all.sh`).
+
+### IDT Plate Builder
+
+The **IDT Plate** tab combines probe sets from several runs into one IDT 96-well plate order (the Excel file IDT's plate upload accepts).
+
+1. Upload `_oligos.txt` / `_HCR_oligos.txt` files, or a batch results ZIP. smFISH and HCR sets can share a plate.
+2. In the table, set the **Order** sets go onto plates, untick sets to leave out, and check the **Gene** column. Gene is the probe-set name without its region (`Eaat1-cmm` → `Eaat1`, `TDP-43-CDS-DmelCO` → `TDP-43`); edit it if the region wasn't stripped correctly.
+3. Set **Minimum oligos per plate** in the sidebar: 24 for standard 96-well plates (default), 48 for HOTPlates.
+4. Check the plate maps and download `IDT_plate-ordering_<YYYYMMDD>_<gene>_<gene>….xlsx`.
+
+Layout rules:
+- Wells fill down each column: A1–H1, then A2 …
+- Each probe set starts on a new column.
+- A set is never split across plates; one that doesn't fit moves to the next plate. Only a set larger than 96 oligos is split, over whole plates.
+- Each plate is a worksheet named after its genes (Excel's 31-character limit; extra genes show as `+N`).
+- Plates are filled in order with the fewest plates that each meet the minimum, earlier plates first. If no layout meets it (e.g. a single 16-oligo set), the app warns.
+
+The same rules apply to the single-run **Download IDT plate** buttons and to `probedesign idtplate`.
 
 ---
 
@@ -319,6 +339,21 @@ Options:
   --help                      Show this message and exit.
 ```
 
+### `probedesign idtplate`
+
+Build an IDT 96-well plate order (`.xlsx`) from oligo files of one or more runs, with the same layout rules as the [IDT Plate tab](#idt-plate-builder). Files go onto plates in the order given.
+
+```
+Usage: probedesign idtplate [OPTIONS] OLIGO_FILES...
+
+Options:
+  -o, --output-dir DIRECTORY     Directory for the plate file (default: current directory)
+  --min-oligos INTEGER RANGE     IDT minimum oligos per plate: 24 for standard 96-well
+                                 plates, 48 for HOTPlates (default: 24)
+```
+
+`OLIGO_FILES` are `_oligos.txt` / `_HCR_oligos.txt` files or batch-result ZIPs. Needs `openpyxl` (in `environment.yml`; or `pip install -e ".[idt]"`).
+
 ### Examples
 
 ```bash
@@ -349,6 +384,9 @@ probedesign hcrdesign input.fa -p 25 -a B2 --asymmetric-gibbs
 
 # HCR: B7+ amplifier with WW spacer resolved to AA
 probedesign hcrdesign input.fa -p 30 -a B9 --resolve-spacer AA
+
+# IDT plate order for two probe sets (HOTPlates: 48-oligo minimum)
+probedesign idtplate Eaat1-cmm_oligos.txt Eaat2-cmm_oligos.txt --min-oligos 48
 ```
 
 ---
@@ -447,6 +485,10 @@ Each block shows:
 | `<name>_HCR_hits.txt` | Per-pair, per-half bowtie hit counts with strict/lenient annotation |
 | `<name>_HCR_bowtie_*_raw.txt` | Raw bowtie output (only with `--save-bowtie-raw`; CLI only) |
 
+### IDT plate order (`IDT_plate-ordering_<YYYYMMDD>_<genes>.xlsx`)
+
+Excel workbook for IDT's 96-well plate upload. One worksheet per plate, named after its genes, with columns `Well Position`, `Name`, `Sequence`; empty wells are left out. Written by the **Download IDT plate** buttons, the [IDT Plate tab](#idt-plate-builder) and `probedesign idtplate`.
+
 ---
 
 ## 7. Troubleshooting
@@ -470,7 +512,7 @@ Each block shows:
 ```
 smFISHProbeDesign/
 ├── src/probedesign/          # Python package
-│   ├── cli.py                #   Click CLI: design, hcrdesign, analyze
+│   ├── cli.py                #   Click CLI: design, hcrdesign, analyze, idtplate
 │   ├── core.py               #   smFISH algorithm (badness, DP, mixed-length)
 │   ├── hcr.py                #   HCR split-initiator pair design
 │   ├── thermodynamics.py     #   Gibbs FE and Tm (Sugimoto 1995)
@@ -478,17 +520,18 @@ smFISHProbeDesign/
 │   ├── sequence.py           #   Sequence utilities
 │   ├── fasta.py              #   FASTA I/O
 │   ├── output.py             #   smFISH output files
-│   └── hcr_output.py         #   HCR output files
+│   ├── hcr_output.py         #   HCR output files
+│   └── idt.py                #   IDT 96-well plate order (.xlsx)
 ├── streamlit_app/            # Streamlit web app
 │   ├── app.py                #   Entry point + top navigation
-│   ├── pages/                #   smfish.py, hcr.py, isoform_explorer.py, transquant.py
+│   ├── pages/                #   smfish.py, hcr.py, isoform_explorer.py, transquant.py, idt_plate.py
 │   ├── utils.py              #   Backend helpers (run/batch wrappers, validation)
 │   └── isoform_data.py       #   Isoform Explorer data access + plot
 ├── data/
 │   ├── isoform_explorer/     #   Isoform Explorer data (Ensembl v113, Parquet)
 │   └── pseudogeneDBs/        #   Pseudogene FASTA files (indices built from these)
 ├── docs/                     # Documentation (see Further Reading)
-├── tests/                    # pytest suite (HCR unit, smFISH regression, run header)
+├── tests/                    # pytest suite (HCR unit, smFISH regression, run header, IDT plate)
 │   └── regression/           #   Regression inputs + reference outputs
 ├── legacy/                   # Archived upstream MATLAB / Python 2 code (not used)
 ├── bowtie_indexes/           # Genome/pseudogene indices (gitignored)

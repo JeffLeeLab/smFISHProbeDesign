@@ -15,7 +15,8 @@ ProbeDesign designs oligonucleotide probes for single-molecule RNA FISH (smFISH)
 streamlit run streamlit_app/app.py      # web app
 probedesign design input.fa --probes 48             # smFISH
 probedesign hcrdesign input.fa --pairs 30 -a B1     # HCR
-python -m pytest tests/                 # HCR unit, smFISH regression, run-header tests
+probedesign idtplate a_oligos.txt b_HCR_oligos.txt  # IDT 96-well plate order (.xlsx)
+python -m pytest tests/                 # HCR unit, smFISH regression, run-header, IDT plate tests
 ```
 
 The app pages put `src/` on `sys.path` themselves; the `probedesign` CLI needs the package installed (`pip install -e .`).
@@ -37,24 +38,26 @@ legacy/                     Archived upstream MATLAB / Python 2 code — ignore
 
 | File | Purpose |
 |-|-|
-| `cli.py` | Click CLI: `design` (smFISH), `hcrdesign` (HCR pairs), `analyze` (ΔG profile) |
+| `cli.py` | Click CLI: `design` (smFISH), `hcrdesign` (HCR pairs), `analyze` (ΔG profile), `idtplate` (IDT plate order) |
 | `core.py` | smFISH pipeline `design_probes()`: badness, masks, fixed- and mixed-length DP |
 | `hcr.py` | HCR pipeline `design_hcr_probes()`: pair badness, pair DP, initiator attachment |
 | `masking.py` | Bowtie pseudogene/genome masks, RepeatMasker, low-complexity checks |
 | `thermodynamics.py` | ΔG / Tm (Sugimoto 1995 RNA-DNA; 0.33 M salt, 50 µM primer) |
 | `output.py`, `hcr_output.py` | smFISH / HCR output files |
+| `idt.py` | IDT 96-well plate order: parse oligo files, pack sets onto plates, write `.xlsx` (openpyxl, imported lazily) |
 | `provenance.py` | `run_info` → `#` run header and equivalent CLI command for `_seq.txt` / `_HCR_seq.txt` |
 | `sequence.py`, `fasta.py` | Sequence utilities; FASTA I/O (multi-entry joined with `>` junction markers) |
 
 ## Streamlit app (`streamlit_app/`)
 
-`app.py` only builds the top nav (smFISH, HCR, Isoform Explorer, TransQuant). Each page owns its own sidebar and widgets.
+`app.py` only builds the top nav (smFISH, HCR, Isoform Explorer, TransQuant, IDT Plate). Each page owns its own sidebar and widgets.
 
 | File | Purpose |
 |-|-|
 | `pages/smfish.py` | smFISH design, single + batch |
 | `pages/hcr.py` | HCR design, single + batch |
 | `pages/isoform_explorer.py`, `isoform_data.py` | Isoform browser; exports N-collapsed constitutive FASTA. No probe-design code |
+| `pages/idt_plate.py` | IDT Plate Builder: combines uploaded oligo files / batch ZIPs into one plate order |
 | `pages/transquant.py` | Embeds external `transquant_w.ui.render()`. Independent of the other tabs |
 | `utils.py` | Backend: FASTA validation, temp files, `check_prerequisites()`, run/batch wrappers, batch summaries + ZIPs |
 
@@ -108,6 +111,7 @@ Each pair is two 25-nt halves with a 2-nt gap; the 52-nt block is the DP unit. T
   - `_seq.txt`: sequence blocks with R/P/B/F/L lines and probe labels.
   - `_bowtie_pseudogene.txt` / `_bowtie_genome.txt`: written when masking is on; `--save-bowtie-raw` adds `_raw` versions.
 - **HCR** (`hcr_output.py`): `_HCR_oligos.txt`, `_HCR_seq.txt` and `_HCR_hits.txt`. `--save-bowtie-raw` adds `_HCR_bowtie_*_raw.txt`.
+- **IDT plate** (`idt.py`): `IDT_plate-ordering_<YYYYMMDD>_<genes>.xlsx`, one worksheet per plate named after its genes; columns Well Position / Name / Sequence. Wells fill down columns; each set starts a new column and stays on one plate; plates meet `--min-oligos` (24; HOTPlates 48) where possible. Gene = set name before its region token (`gene_label()`).
 
 ## Testing
 
@@ -121,6 +125,7 @@ python -m pytest tests/
   - the L mask;
   - mixed length;
   - KRT19 and mouseMITF with pseudogene and genome masks. These skip if bowtie or the indices are missing.
+- `test_idt.py`: IDT plate gene labels, parsing, packing, sheet/file names, `.xlsx` round trip, `idtplate` CLI.
 - `test_provenance.py`: the `#` run header. It covers:
   - header fields;
   - the overlay being unchanged;
