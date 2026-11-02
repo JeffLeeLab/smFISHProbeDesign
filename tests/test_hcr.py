@@ -29,6 +29,8 @@ from probedesign.hcr import (
 from probedesign.thermodynamics import gibbs_rna_dna
 from probedesign.masking import has_homopolymer, has_dinucleotide_repeat
 from probedesign.sequence import reverse_complement
+from probedesign.cli import main
+from click.testing import CliRunner
 
 
 # ── Test Fixtures ────────────────────────────────────────────────────────────
@@ -534,6 +536,25 @@ class TestOutputFormatting:
             assert os.path.exists(os.path.join(tmpdir, "GENE_HCR_oligos.txt"))
             assert os.path.exists(os.path.join(tmpdir, "GENE_HCR_seq.txt"))
             assert os.path.exists(os.path.join(tmpdir, "GENE_HCR_hits.txt"))
+
+
+# ── CLI Tests ────────────────────────────────────────────────────────────────
+
+class TestCLI:
+    """hcrdesign command-line interface."""
+
+    def test_output_dir_not_in_probe_names(self, tmp_path):
+        """-o with a directory writes files there; probe names use only its last part."""
+        input_fa = _repo_root / "tests" / "regression" / "EIF1_CDS_HCR" / "EIF1_Exons.fasta"
+        result = CliRunner().invoke(main, [
+            "hcrdesign", str(input_fa), "-p", "5", "-o", str(tmp_path / "EIF1"), "--quiet",
+        ])
+        assert result.exit_code == 0, f"{result.output}\n{result.exception!r}"
+
+        rows = (tmp_path / "EIF1_HCR_oligos.txt").read_text().splitlines()[1:]
+        names = [row.split("\t")[-1] for row in rows]
+        assert names, "expected at least one probe pair"
+        assert all(name.startswith("EIF1_HCRB1_") for name in names), names
 
 
 if __name__ == "__main__":

@@ -138,6 +138,8 @@ def test_cdkn1a_cli_writes_outputs_matching_reference(tmp_path):
     rows = [line.split("\t") for line in oligos_file.read_text().splitlines()]
     assert len(rows) == 32
     assert all(len(row) == 7 for row in rows)
+    # -o includes tmp_path, but probe names use only its last part
+    assert [row[-1] for row in rows] == [f"cdkn1a_{i}" for i in range(1, 33)]
     assert _oligo_sequences(oligos_file) == _oligo_sequences(CDKN1A_REF)
 
 

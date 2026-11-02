@@ -231,7 +231,7 @@ def design(
         spacer_length=spacer_length,
         target_gibbs=target_gibbs,
         allowable_gibbs=(min_gibbs, max_gibbs),
-        output_name=output,
+        output_name=Path(output).name,  # -o may include a directory; names don't
         species=species,
         pseudogene_mask=pseudogene_mask,
         genome_mask=genome_mask,
@@ -461,7 +461,7 @@ def hcrdesign(
         hp_threshold=hp_threshold,
         di_threshold=di_threshold,
         resolve_spacer=resolve_spacer,
-        output_name=output,
+        output_name=Path(output).name,  # -o may include a directory; names don't
         save_bowtie_raw=save_bowtie_raw,
     )
 

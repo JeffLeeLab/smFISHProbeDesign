@@ -44,7 +44,6 @@ from probedesign.hcr import VALID_AMPLIFIERS
 
 for key, default in {
     "hcr_single_result": None,
-    "hcr_single_input_name": None,
     "hcr_batch_results": None,
     "hcr_batch_output_dir": None,
     "hcr_temp_files": [],
@@ -274,8 +273,7 @@ def _show_hcr_results():
 
     if run_result.result is not None and run_result.result.pairs:
         result = run_result.result
-        input_name = st.session_state.get("hcr_single_input_name") or "probes"
-        prefix = Path(input_name).stem
+        prefix = result.template_name
 
         mcol1, mcol2, mcol3 = st.columns(3)
         mcol1.metric("Pairs found", len(result.pairs))
@@ -392,7 +390,6 @@ if mode == "Single sequence":
         st.session_state["hcr_single_result"] = None
 
         input_path = None
-        input_name = None
         auto_name = None
 
         if run_from_upload:
@@ -402,7 +399,6 @@ if mode == "Single sequence":
             tmp_path = save_uploaded_file_to_temp(uploaded_file)
             st.session_state["hcr_temp_files"].append(tmp_path)
             input_path = str(tmp_path)
-            input_name = uploaded_file.name
             auto_name = clean_name_for_prefix(Path(uploaded_file.name).stem)
         else:
             if not pasted_text.strip():
@@ -415,7 +411,6 @@ if mode == "Single sequence":
             tmp_path = save_fasta_to_temp(pasted_text)
             st.session_state["hcr_temp_files"].append(tmp_path)
             input_path = str(tmp_path)
-            input_name = "pasted_sequence"
             header = extract_first_fasta_header(pasted_text)
             auto_name = clean_name_for_prefix(header) if header else "probe"
 
@@ -453,7 +448,6 @@ if mode == "Single sequence":
             )
 
         st.session_state["hcr_single_result"] = run_result
-        st.session_state["hcr_single_input_name"] = input_name
 
     _show_hcr_results()
 
