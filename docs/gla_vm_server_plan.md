@@ -1,6 +1,6 @@
 # Glasgow VM Server — Deployment Plan
 
-> **Status**: Deployed (`3d8a62c`, 2026-02-20). This is a record of the VM setup as it was done, so the live server may have drifted from it. The VM uses **micromamba** (`~/micromamba`), and the systemd and SELinux paths below depend on it, so it is kept deliberately. `setup_all.sh` still detects micromamba first. For local installs, use mamba/conda as in the README.
+> **Status**: Deployed (`3d8a62c`, 2026-02-20). This is a record of the VM setup as it was done, so the live server may have drifted from it. Updates are manual (see *Updating the App*); `git -C ~/Github/smFISHProbeDesign log --oneline -1` on the VM shows the commit it is on. The VM uses **micromamba** (`~/micromamba`), and the systemd and SELinux paths below depend on it, so it is kept deliberately. `setup_all.sh` still detects micromamba first. For local installs, use mamba/conda as in the README.
 
 Deploy the smFISHProbeDesign Streamlit app on an Oracle Linux 9.6 university VM.
 
@@ -563,36 +563,45 @@ During genome masking, expect RAM + swap to be heavily used (~3.5 GB for human g
 
 ### Updating the App (git pull)
 
-When new features are pushed to the repository:
+Updates are manual: SSH in, pull and restart. Nothing on the VM updates itself, so the app keeps running the commit you last pulled.
 
-```bash
-# SSH into the VM
-cd ~/Github/smFISHProbeDesign
+A restart disconnects everyone using the app, and they lose any uploads and results on screen, so update when the app is quiet.
 
-# Pull latest changes
-git pull origin master
-
-# If environment.yml changed (new dependencies), update the env:
-micromamba activate probedesign
-micromamba env update -n probedesign -f environment.yml --prune -y
-
-# If pyproject.toml changed, reinstall the package:
-pip install -e .
-
-# Restart the service to pick up changes
-sudo systemctl restart probedesign
-
-# Verify
-sudo systemctl status probedesign
-```
-
-**Quick update** (if only Python code changed, no new dependencies):
+**1. See what the update brings.** The last command tells you which kind of update it is:
 
 ```bash
 cd ~/Github/smFISHProbeDesign
+git fetch origin
+git log --oneline HEAD..origin/master                                  # commits you will get
+git diff --stat HEAD origin/master -- environment.yml pyproject.toml   # dependency changes
+```
+
+**2a. Code only** (the `git diff` printed nothing):
+
+```bash
 git pull origin master
 sudo systemctl restart probedesign
 ```
+
+**2b. Dependencies changed** (the `git diff` lists `environment.yml` or `pyproject.toml`): pull, then rerun the setup script before restarting.
+
+```bash
+git pull origin master
+./setup_all.sh --skip-genome
+sudo systemctl restart probedesign
+```
+
+The setup script updates the env from `environment.yml`, reinstalls the package (`pip install -e .`) and reinstalls TransQuant at its pinned tag, which `micromamba env update` alone doesn't reliably do. It skips indices that are already built and ends with its quick checks. `--skip-genome` skips only the genome download and the genome checks: the indices are already in place, and the genome-mask check needs ~3.5 GB of RAM, which would compete with the running app. It takes a few minutes; run it inside `screen` (Step 5) if your connection might drop.
+
+**3. Check the app came back:**
+
+```bash
+systemctl status probedesign --no-pager | head -3                 # active (running)
+curl -s http://127.0.0.1:8501/probedesign/_stcore/health; echo    # ok
+git log --oneline -1                                              # the commit now running
+```
+
+Then open https://shinytest.mvls.gla.ac.uk/probedesign/ and run a quick design. Its `_seq.txt` run header shows the same commit hash.
 
 ### Viewing Logs
 
@@ -756,7 +765,7 @@ curl -s http://localhost:8501 | head -5
 
 ### Updating fails (git pull conflicts)
 
-If someone edited files directly on the VM:
+Don't edit files on the VM: edits can block `git pull`, and every run header records the commit as `<hash>-dirty`. If someone did:
 
 ```bash
 cd ~/Github/smFISHProbeDesign
@@ -837,8 +846,11 @@ RepeatMasker will now be detected automatically by the app's prerequisite check.
 | Check service | `sudo systemctl status probedesign` |
 | Restart service | `sudo systemctl restart probedesign` |
 | View live logs | `sudo journalctl -u probedesign -f` |
-| Update app | `cd ~/Github/smFISHProbeDesign && git pull origin master && sudo systemctl restart probedesign` |
-| Update env | `micromamba activate probedesign && micromamba env update -n probedesign -f environment.yml --prune -y && pip install -e . && sudo systemctl restart probedesign` |
+| Check what an update brings | `cd ~/Github/smFISHProbeDesign && git fetch origin && git diff --stat HEAD origin/master -- environment.yml pyproject.toml` |
+| Update app (code only) | `cd ~/Github/smFISHProbeDesign && git pull origin master && sudo systemctl restart probedesign` |
+| Update app (dependencies changed) | `cd ~/Github/smFISHProbeDesign && git pull origin master && ./setup_all.sh --skip-genome && sudo systemctl restart probedesign` |
+| Commit checked out | `git -C ~/Github/smFISHProbeDesign log --oneline -1` |
+| Health check | `curl -s http://127.0.0.1:8501/probedesign/_stcore/health` |
 | Check memory | `free -m` |
 | Check Nginx status | `sudo systemctl status nginx` |
 | Reload Nginx config | `sudo nginx -t && sudo systemctl restart nginx` |
