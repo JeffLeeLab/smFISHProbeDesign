@@ -138,10 +138,10 @@ pip install "git+https://github.com/JeffLeeLab/TransQuant-probe-weight.git@v0.2.
 ### Running Tests
 
 ```bash
-python -m pytest tests/      # HCR unit tests + smFISH regression tests
+python -m pytest tests/      # HCR unit, smFISH regression and run-header tests
 ```
 
-`tests/test_smfish_regression.py` reproduces the reference designs in `tests/regression/` (CDKN1A, KRT19, mouseMITF). The KRT19 and mouseMITF tests need bowtie and the human/mouse indices, and are skipped without them. `setup_all.sh` also checks CDKN1A and KRT19 against the same references.
+`tests/test_smfish_regression.py` reproduces the reference designs in `tests/regression/` (CDKN1A, KRT19, mouseMITF). The KRT19 and mouseMITF tests need bowtie and the human/mouse indices, and are skipped without them. `setup_all.sh` also checks CDKN1A and KRT19 against the same references. `tests/test_provenance.py` covers the `#` run header in `_seq.txt` / `_HCR_seq.txt`, including that its command reproduces the design.
 
 ---
 
@@ -168,7 +168,7 @@ streamlit run streamlit_app/app.py
 
 1. Switch **Mode** to **Batch**
 2. Provide a folder of FASTA files (or upload multiple files)
-3. Click **Run Batch**, then download all results as a ZIP plus `batch_summary.tsv`
+3. Click **Run Batch**, then download all results as a ZIP plus `batch_summary.tsv`. Its `Warnings` column lists any mask that failed for a gene.
 4. Optional: set an output directory under **Auto-save outputs** to also write results to disk on the server
 
 ### smFISH Sidebar Parameters
@@ -411,6 +411,15 @@ Tab-separated, one probe per line. Order sequences from the last two columns whe
 
 Visual sequence map (110 chars per line) showing probe placement and masking. Useful for checking masking behaviour.
 
+The file starts with a run header: lines beginning with `#`. It records:
+- the equivalent `probedesign` command;
+- the input and every design parameter;
+- the version and git commit;
+- for each mask, whether it was applied, which bowtie index was used, and a short fingerprint of that index (so runs on different machines can be compared);
+- the probes found and the percentage covered by each mask.
+
+A mask that was requested but failed (bowtie missing, a broken index) reads `FAILED, not applied`. `grep -v '^#'` strips the header and leaves the sequence map unchanged.
+
 Each block shows:
 - **Sequence line**: Original target sequence
 - **R line** (when repeat masking used): `R` = masked position, base = unmasked
@@ -434,7 +443,7 @@ Each block shows:
 | File | Content |
 |------|---------|
 | `<name>_HCR_oligos.txt` | TSV with header: `pair, half (P1/P2), start, GC%, Tm, Gibbs, strict (yes/no), full_oligo, name`. `full_oligo` includes the half-initiator and spacer. Names are `<name>_HCR<amp>_NN` (odd = P1, even = P2) |
-| `<name>_HCR_seq.txt` | Sequence map with mask lines and pair annotations |
+| `<name>_HCR_seq.txt` | `#` run header (as for `_seq.txt`), then the sequence map with mask lines and pair annotations |
 | `<name>_HCR_hits.txt` | Per-pair, per-half bowtie hit counts with strict/lenient annotation |
 | `<name>_HCR_bowtie_*_raw.txt` | Raw bowtie output (only with `--save-bowtie-raw`; CLI only) |
 
@@ -479,7 +488,7 @@ smFISHProbeDesign/
 │   ├── isoform_explorer/     #   Isoform Explorer data (Ensembl v113, Parquet)
 │   └── pseudogeneDBs/        #   Pseudogene FASTA files (indices built from these)
 ├── docs/                     # Documentation (see Further Reading)
-├── tests/                    # pytest suite (HCR unit + smFISH regression tests)
+├── tests/                    # pytest suite (HCR unit, smFISH regression, run header)
 │   └── regression/           #   Regression inputs + reference outputs
 ├── legacy/                   # Archived upstream MATLAB / Python 2 code (not used)
 ├── bowtie_indexes/           # Genome/pseudogene indices (gitignored)

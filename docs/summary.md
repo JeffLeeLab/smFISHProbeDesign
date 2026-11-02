@@ -335,6 +335,8 @@ The `ProbeDesignResult` dataclass was extended with fields so bowtie alignment d
 | `bowtie_genome_hits` | `dict` | Parsed hit counts per mer length |
 | `bowtie_pseudogene_raw` | `str` | Raw bowtie alignment output |
 | `bowtie_genome_raw` | `str` | Raw bowtie alignment output |
+| `mask_kinds` | `List[str]` | Mask letter of each `mask_strings` line (R/P/B/F/L) |
+| `run_info` | `dict` | Effective parameters, input name, version/git, per-mask `MaskRecord`s (see 4.6) |
 
 ### 4.4 `core.py` — `save_bowtie_raw` Parameter
 
@@ -343,6 +345,15 @@ A `save_bowtie_raw` flag was added to `design_probes()` to optionally preserve t
 ### 4.5 Summary of Source Changes
 
 All changes are **additive** — no existing function signatures were broken, and no existing behavior was changed. The CLI path is unaffected. The new `format_*` functions and extended dataclass simply provide the app with programmatic access to what was previously only available via file I/O.
+
+### 4.6 Run header (`provenance.py`)
+
+`design_probes()` and `design_hcr_probes()` fill `result.run_info`. `provenance.format_header()` turns it into the `#` header at the top of `_seq.txt` / `_HCR_seq.txt`. `build_command()` gives the equivalent CLI command; it lists non-default options only, with long flags.
+
+- **Masks:** each bowtie mask gets a `MaskRecord` with its status, index name, assembly label and fingerprint. The fingerprint is the first 12 hex digits of the SHA-256 of `<index>.3.ebwt` / `.3.bt2`. It tells you whether two machines (local vs VM) used the same index build.
+- **Bowtie failures:** `run_bowtie()` raises `BowtieError` on a non-zero exit. Before, a missing or broken index returned zero hits and looked like a clean run.
+- **App names:** the app swaps temp-file names for upload names (or `pasted_sequence.fa`) via `run_design(input_name=..., repeatmask_name=...)`. The index directory prints as `default` unless it is a custom path.
+- **Mixed-length overlay:** `write_seq_file()` now writes `format_seq_content()`, which draws each probe with its own length. The app copy used the first probe's length for every probe.
 
 ---
 
@@ -357,7 +368,7 @@ The reference outputs predate the low-complexity (L) filter, so the commands bel
 | CDKN1A_32 | `probedesign design CDKN1A.fa --probes 32 --repeatmask-file CDKN1A_repeatmasked.fa --hp-threshold 10 --di-threshold 10` | Matches `CDKN1A_32_genomemaskoff_oligos.txt` (32/32) | **PASS** |
 | KRT19 | `probedesign design KRT19_withUTRs.fa --probes 32 --pseudogene-mask --genome-mask --hp-threshold 10 --di-threshold 10` | Matches `KRT19_withUTRs_oligos.txt` (6/6) | **PASS** |
 | mouseMITF | `probedesign design mouseMITF.fa --probes 24 --species mouse --pseudogene-mask --genome-mask --repeatmask-file mouseMITF_repeatmasked.fa --hp-threshold 10 --di-threshold 10` | Matches `mouseMITF_oligos.txt` (24/24) | **PASS** |
-| pytest | `python -m pytest tests/` | All pass | **PASS (44 tests: 37 HCR, 7 smFISH)** |
+| pytest | `python -m pytest tests/` | All pass | **PASS (85 tests: 38 HCR, 7 smFISH regression, 40 run header)** |
 
 `tests/regression/EIF1_CDS_HCR/` is an old single-52-mer design and was superseded by `probedesign hcrdesign` (see `probe_design_principles.md` §10).
 

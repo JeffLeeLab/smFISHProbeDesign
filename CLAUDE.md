@@ -15,7 +15,7 @@ ProbeDesign designs oligonucleotide probes for single-molecule RNA FISH (smFISH)
 streamlit run streamlit_app/app.py      # web app
 probedesign design input.fa --probes 48             # smFISH
 probedesign hcrdesign input.fa --pairs 30 -a B1     # HCR
-python -m pytest tests/                 # HCR unit + smFISH regression tests
+python -m pytest tests/                 # HCR unit, smFISH regression, run-header tests
 ```
 
 The app pages put `src/` on `sys.path` themselves; the `probedesign` CLI needs the package installed (`pip install -e .`).
@@ -43,6 +43,7 @@ legacy/                     Archived upstream MATLAB / Python 2 code — ignore
 | `masking.py` | Bowtie pseudogene/genome masks, RepeatMasker, low-complexity checks |
 | `thermodynamics.py` | ΔG / Tm (Sugimoto 1995 RNA-DNA; 0.33 M salt, 50 µM primer) |
 | `output.py`, `hcr_output.py` | smFISH / HCR output files |
+| `provenance.py` | `run_info` → `#` run header and equivalent CLI command for `_seq.txt` / `_HCR_seq.txt` |
 | `sequence.py`, `fasta.py` | Sequence utilities; FASTA I/O (multi-entry joined with `>` junction markers) |
 
 ## Streamlit app (`streamlit_app/`)
@@ -96,6 +97,12 @@ Each pair is two 25-nt halves with a 2-nt gap; the 52-nt block is the DP unit. T
 
 ## Outputs
 
+- `_seq.txt` and `_HCR_seq.txt` start with `#` lines from `provenance.format_header()`:
+  - the parameters, input, version and git hash;
+  - each bowtie mask's status, index and fingerprint;
+  - the equivalent CLI command.
+
+  Files are named by basename or upload name, never by temp or server path. A requested mask that failed shows `FAILED`, and the app also shows a warning for it.
 - **smFISH** (`output.py`):
   - `_oligos.txt`: TSV of index, start, GC%, Tm, ΔG, sequence, name.
   - `_seq.txt`: sequence blocks with R/P/B/F/L lines and probe labels.
@@ -114,9 +121,16 @@ python -m pytest tests/
   - the L mask;
   - mixed length;
   - KRT19 and mouseMITF with pseudogene and genome masks. These skip if bowtie or the indices are missing.
+- `test_provenance.py`: the `#` run header. It covers:
+  - header fields;
+  - the overlay being unchanged;
+  - the mixed-length overlay;
+  - CLI command round trips and flag drift;
+  - mask status, fingerprints and failures;
+  - the header never showing a path.
 - The references predate the L mask. Tests pass `--hp-threshold 10 --di-threshold 10` (the maximum) to effectively switch it off; do the same when comparing by hand.
 - `mixed_length_test/` is an input only, with no reference. `EIF1_CDS_HCR/` uses the old single-52-mer approach and is not a reference for `hcrdesign`.
-- If bowtie isn't on `PATH`, masking only prints a warning and carries on unmasked. The tests put the interpreter's `bin/` on `PATH`. When running the CLI with the env's python directly, add `~/miniforge3/envs/probedesign/bin` yourself.
+- If bowtie isn't on `PATH`, masking prints a warning, records `FAILED` in the header and carries on unmasked. The tests put the interpreter's `bin/` on `PATH`. When running the CLI with the env's python directly, add `~/miniforge3/envs/probedesign/bin` yourself.
 
 ## Docs
 
@@ -133,4 +147,9 @@ python -m pytest tests/
   3. Add a widget in `pages/smfish.py`.
   4. Pass it through `run_design()` and the `run_batch()` params dict in `utils.py`.
 - **HCR option**: same chain, using `hcrdesign` → `design_hcr_probes()` (`hcr.py`) → `pages/hcr.py` → `run_hcr_design()` / `run_hcr_batch()`.
+- For either kind, also:
+  - add the option to the `run_info` params dict in the design function;
+  - add it to `build_command()` and `format_header()` in `provenance.py`.
+
+  `test_provenance.py` checks that the command's flags exist.
 - Then update `README.md` and this file.
