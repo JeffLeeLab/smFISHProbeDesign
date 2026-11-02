@@ -407,9 +407,11 @@ if ! $SKIP_GENOME; then
     # ── Test G: KRT19 with full masking ───────────────────────────────────────
     echo -n "  [G] probe design — KRT19 (6 probes, pseudogene+genome mask, 100% match) … "
     TMPDIR_G=$(mktemp -d)
+    # Reference predates the low-complexity (L) filter; thresholds of 10 disable it
     if run_in_env probedesign design tests/regression/KRT19_withUTRs/KRT19_withUTRs.fa \
             --probes 32 --pseudogene-mask --genome-mask \
             --index-dir "$INDEX_DIR" \
+            --hp-threshold 10 --di-threshold 10 \
             -o "$TMPDIR_G/test" --quiet 2>/dev/null; then
 
         G_COUNT=$(wc -l < "$TMPDIR_G/test_oligos.txt" | tr -d ' ')
