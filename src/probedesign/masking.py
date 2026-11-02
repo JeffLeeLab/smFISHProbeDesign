@@ -8,6 +8,8 @@ This module provides functions to mask regions of a sequence that align to:
 The masking logic mirrors the MATLAB findprobesLocal.m implementation.
 """
 
+import functools
+import hashlib
 import os
 import shutil
 import subprocess
@@ -17,6 +19,48 @@ from typing import List, Optional, Tuple
 
 # Default index directory (can be overridden)
 DEFAULT_INDEX_DIR = Path(__file__).parent.parent.parent / "bowtie_indexes"
+
+# Bowtie index basenames per species
+PSEUDOGENE_INDEXES = {
+    "human": "humanPseudo",
+    "mouse": "mousePseudo",
+    "elegans": "celegansPseudo",
+    "drosophila": "drosophilaPseudo",
+    "rat": "ratPseudo",
+}
+
+GENOME_INDEXES = {
+    "human": "GCA_000001405.15_GRCh38_no_alt_analysis_set",
+    "mouse": "mm10",
+    "elegans": "celegans",
+    "drosophila": "drosophila",
+    "rat": "rat",
+    "cow": "cow",
+}
+
+# Assemblies behind the genome indices that setup_all.sh installs. setup_all.sh
+# renames BDGP6 to "drosophila", so index_fingerprint() is the real check.
+GENOME_ASSEMBLIES = {
+    "human": "GRCh38 no-alt analysis set",
+    "mouse": "GRCm38 (mm10)",
+    "drosophila": "BDGP6 (setup_all.sh download)",
+}
+
+
+class BowtieError(subprocess.CalledProcessError):
+    """bowtie exited non-zero, e.g. because the index is missing or incomplete."""
+
+    def __init__(self, returncode, cmd, database, output=None, stderr=None):
+        super().__init__(returncode, cmd, output=output, stderr=stderr)
+        self.database = database
+
+    def __str__(self):
+        # Name the index, not its path: this text ends up in output headers
+        if self.returncode < 0:
+            how = f"crashed (signal {-self.returncode})"
+        else:
+            how = f"exited with status {self.returncode}"
+        return f"bowtie {how} on index '{self.database}' (missing or incomplete index?)"
 
 
 def has_homopolymer(subseq: str, threshold: int = 4) -> bool:
@@ -108,6 +152,42 @@ def find_bowtie() -> str:
     )
 
 
+def bowtie_version() -> Optional[str]:
+    """Return the bowtie version string (e.g. '1.3.1'), or None if unavailable."""
+    try:
+        return _bowtie_version_at(find_bowtie())
+    except FileNotFoundError:
+        return None
+
+
+@functools.lru_cache(maxsize=None)
+def _bowtie_version_at(bowtie_path: str) -> Optional[str]:
+    try:
+        result = subprocess.run(
+            [bowtie_path, "--version"],
+            capture_output=True, text=True, check=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    first_line = result.stdout.splitlines()[0] if result.stdout else ""
+    return first_line.rsplit("version", 1)[-1].strip() or None
+
+
+def index_fingerprint(index_dir: Optional[Path], database: str) -> Optional[str]:
+    """Short SHA-256 of an index's small .3 file, to tell index builds apart.
+
+    The .3 file (a few KB) holds the reference layout, so two indices built
+    from the same reference share it. Returns the first 12 hex digits, or
+    None if neither <database>.3.ebwt nor <database>.3.bt2 exists.
+    """
+    index_dir = Path(index_dir) if index_dir else DEFAULT_INDEX_DIR
+    for ext in ("ebwt", "bt2"):
+        path = index_dir / f"{database}.3.{ext}"
+        if path.is_file():
+            return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    return None
+
+
 def sequence_to_nmers(seq: str, mer_length: int) -> str:
     """Convert a sequence to FASTA-formatted n-mer substrings.
 
@@ -194,6 +274,14 @@ def run_bowtie(
         )
     except FileNotFoundError as e:
         raise FileNotFoundError(f"Bowtie not found: {e}")
+
+    # No alignments still exits 0; non-zero means bowtie itself failed (e.g.
+    # missing index), which would otherwise look like a clean zero-hit run
+    if result.returncode != 0:
+        raise BowtieError(
+            result.returncode, cmd, database,
+            output=result.stdout, stderr=result.stderr,
+        )
 
     raw_output = result.stdout
 
@@ -297,18 +385,9 @@ def pseudogene_mask(
         (1 = masked, 0 = unmasked), hits is the per-position hit count array,
         and raw_bowtie_output is the raw bowtie alignment text
     """
-    # Map species to database name
-    db_map = {
-        "human": "humanPseudo",
-        "mouse": "mousePseudo",
-        "elegans": "celegansPseudo",
-        "drosophila": "drosophilaPseudo",
-        "rat": "ratPseudo",
-    }
-
-    db = db_map.get(species.lower())
+    db = PSEUDOGENE_INDEXES.get(species.lower())
     if not db:
-        raise ValueError(f"Unknown species: {species}. Valid options: {list(db_map.keys())}")
+        raise ValueError(f"Unknown species: {species}. Valid options: {list(PSEUDOGENE_INDEXES)}")
 
     # Run bowtie with 16-mers
     hits, raw_text = run_bowtie(seq, mer_length=16, database=db, index_dir=index_dir)
@@ -345,19 +424,9 @@ def genome_mask(
         counts for each tier {"12mer":[], "14mer":[], "16mer":[]}, and
         raw_bowtie_output is the combined raw bowtie alignment text
     """
-    # Map species to database name
-    db_map = {
-        "human": "GCA_000001405.15_GRCh38_no_alt_analysis_set",
-        "mouse": "mm10",
-        "elegans": "celegans",
-        "drosophila": "drosophila",
-        "rat": "rat",
-        "cow": "cow",
-    }
-
-    db = db_map.get(species.lower())
+    db = GENOME_INDEXES.get(species.lower())
     if not db:
-        raise ValueError(f"Unknown species: {species}. Valid options: {list(db_map.keys())}")
+        raise ValueError(f"Unknown species: {species}. Valid options: {list(GENOME_INDEXES)}")
 
     # Run bowtie with different parameters
     # Note: We need -k to be high enough to count hits above threshold
