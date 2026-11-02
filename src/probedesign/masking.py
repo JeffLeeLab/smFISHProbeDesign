@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 # Default index directory (can be overridden)
-DEFAULT_INDEX_DIR = Path(__file__).parent.parent.parent.parent / "bowtie_indexes"
+DEFAULT_INDEX_DIR = Path(__file__).parent.parent.parent / "bowtie_indexes"
 
 
 def has_homopolymer(subseq: str, threshold: int = 4) -> bool:
