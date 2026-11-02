@@ -1,6 +1,6 @@
 # Glasgow VM Server — Deployment Plan
 
-> **Status**: Deployed (`3d8a62c`, 2026-02-20). This is a record of the VM setup as it was done, so the live server may have drifted from it. Updates are manual (see *Updating the App*); `git -C ~/Github/smFISHProbeDesign log --oneline -1` on the VM shows the commit it is on. The VM is moving from micromamba to **Miniforge** (`~/miniforge3`, 2026-11-02), and `setup_all.sh` no longer supports micromamba. Until this doc is updated, read the micromamba paths and commands below as `~/miniforge3/envs/probedesign`, `conda activate` and `mamba`.
+> **Status**: Deployed (`3d8a62c`, 2026-02-20); moved from micromamba to **Miniforge** (`~/miniforge3`) on 2026-11-02 (see *History*). This is a record of the VM setup, so the live server may have drifted from it. Updates are manual (see *Updating the App*); `git -C ~/Github/smFISHProbeDesign log --oneline -1` on the VM shows the commit it is on.
 
 Deploy the smFISHProbeDesign Streamlit app on an Oracle Linux 9.6 university VM.
 
@@ -21,7 +21,7 @@ Deploy the smFISHProbeDesign Streamlit app on an Oracle Linux 9.6 university VM.
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Package manager | micromamba | Fast, lightweight, no Anaconda licensing |
+| Package manager | Miniforge (mamba + conda) | conda-forge by default, no Anaconda licensing; same as local installs and the only kind `setup_all.sh` supports (micromamba until 2026-11-02) |
 | Install location | `~/Github/smFISHProbeDesign` | User's home directory, easy `git pull` updates |
 | Process manager | systemd | Auto-restart, survives reboots, journal logging |
 | Network exposure | IT's HTTPS Nginx config + ProbeDesign location block | IT pre-installed nginx with Let's Encrypt cert and HTTP→HTTPS redirect; we add our app as a location block inside their HTTPS server |
@@ -33,10 +33,10 @@ Deploy the smFISHProbeDesign Streamlit app on an Oracle Linux 9.6 university VM.
 | Component | Size | Location |
 |-----------|------|----------|
 | Repository (code + pseudogene FASTAs) | ~200 MB | `~/Github/smFISHProbeDesign` |
-| Conda environment (Python, Bowtie, Streamlit) | ~500 MB | `~/micromamba/envs/probedesign` |
+| Miniforge + `probedesign` environment (Python, Bowtie, Streamlit, …) | ~1.6 GB | `~/miniforge3` (env in `~/miniforge3/envs/probedesign`) |
 | Pseudogene bowtie indices (3 species) | ~85 MB | `~/Github/smFISHProbeDesign/bowtie_indexes` |
 | Genome indices (human + mouse + drosophila) | ~6.7 GB | `~/Github/smFISHProbeDesign/bowtie_indexes` |
-| **Total** | **~7.5 GB** | All under `/home` (421 GB free) |
+| **Total** | **~8.6 GB** | All under `/home` (421 GB free) |
 
 ---
 
@@ -74,35 +74,28 @@ git --version
 
 ---
 
-### Step 3 — Install micromamba
+### Step 3 — Install Miniforge
 
-micromamba is a fast, standalone conda package manager. Install it into your home directory (no root required for this step).
-
-```bash
-# Download and install micromamba
-"${SHELL}" <(curl -L micro.mamba.pm/install.sh)
-```
-
-During install, accept the defaults:
-- Install location: `~/micromamba` (or `~/.local/bin/micromamba`)
-- Shell init: Yes (adds to `~/.bashrc`)
-
-After install, reload your shell:
+Miniforge provides `mamba` and `conda`, with conda-forge as the default channel. Install it into your home directory (no root required for this step):
 
 ```bash
-source ~/.bashrc
-micromamba --version
+cd ~
+curl -L -O https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
+bash Miniforge3-Linux-x86_64.sh -b -p ~/miniforge3
+rm Miniforge3-Linux-x86_64.sh
+~/miniforge3/bin/conda init bash
 ```
 
-Expected output: `2.x.x` or similar.
-
-**Configure channels** (one-time):
+`-b` installs without questions; `conda init` adds Miniforge to `~/.bashrc`. Log out and back in, then check:
 
 ```bash
-micromamba config append channels conda-forge
-micromamba config append channels bioconda
-micromamba config set channel_priority strict
+mamba --version            # 2.x
+echo "$MAMBA_ROOT_PREFIX"  # should print an empty line
 ```
+
+If micromamba was ever set up on the machine, delete its `# >>> mamba initialize >>>` block from `~/.bashrc` first: it sets `MAMBA_ROOT_PREFIX`, which makes Miniforge's `mamba` install into micromamba's folder.
+
+No channel setup is needed: `environment.yml` names conda-forge and bioconda itself. (This VM's `~/.condarc`, left from the micromamba setup, lists `nodefaults`, `conda-forge` and `bioconda` with `channel_priority: strict`; it works with Miniforge too.)
 
 ---
 
@@ -156,9 +149,9 @@ If your SSH connection drops, simply SSH back in and run `screen -r probedesign_
 
 **What the script does:**
 
-1. **Create `probedesign` conda environment** (~500 MB download)
-   - Python 3.11, Bowtie 1.3.1, Click, Streamlit, Pandas
-2. **Install the `probedesign` package** (editable mode)
+1. **Create `probedesign` conda environment** with mamba (a few minutes)
+   - Python 3.11, Bowtie 1.3.1, Click, Streamlit, Pandas, PyArrow, Matplotlib, openpyxl
+2. **Install the `probedesign` package** (editable mode) and TransQuant
 3. **Build pseudogene indices** from shipped FASTAs (~1 min)
    - `humanPseudo`, `mousePseudo`, `drosophilaPseudo`
 4. **Download genome indices** from AWS (~6.7 GB, ~12–30 min depending on network)
@@ -193,7 +186,7 @@ exit
 Activate the environment and run quick checks.
 
 ```bash
-micromamba activate probedesign
+conda activate probedesign
 
 # Check tools are available
 python --version           # Python 3.11.x
@@ -254,7 +247,7 @@ A systemd unit ensures the app starts on boot, restarts on crash, and logs to jo
 ```bash
 # While probedesign env is activated:
 which streamlit
-# Example output: /home/jeff/micromamba/envs/probedesign/bin/streamlit
+# Example output: /home/jeff/miniforge3/envs/probedesign/bin/streamlit
 ```
 
 Note this path — you will use it in the service file below.
@@ -266,14 +259,14 @@ Oracle Linux 9 (RHEL family) runs SELinux in enforcing mode. systemd (`init_t`) 
 ```bash
 sudo dnf install -y policycoreutils-python-utils   # provides semanage
 
-sudo semanage fcontext -a -t bin_t "/home/jeff/micromamba(/.*)?"
-sudo restorecon -Rv /home/jeff/micromamba/
+sudo semanage fcontext -a -t bin_t "/home/jeff/miniforge3(/.*)?"
+sudo restorecon -R /home/jeff/miniforge3/
 ```
 
 Verify the label was applied:
 
 ```bash
-ls -Z /home/jeff/micromamba/envs/probedesign/bin/streamlit
+ls -Z /home/jeff/miniforge3/envs/probedesign/bin/streamlit
 # Should show: system_u:object_r:bin_t:s0
 ```
 
@@ -293,7 +286,7 @@ User=jeff
 Group=jeff
 
 # Use absolute path to app.py — avoids SELinux WorkingDirectory issues
-ExecStart=/home/jeff/micromamba/envs/probedesign/bin/streamlit run \
+ExecStart=/home/jeff/miniforge3/envs/probedesign/bin/streamlit run \
     /home/jeff/Github/smFISHProbeDesign/streamlit_app/app.py \
     --server.port 8501 \
     --server.address 127.0.0.1 \
@@ -306,7 +299,7 @@ Restart=on-failure
 RestartSec=5
 
 # Environment — ensure the conda env's bin is in PATH so bowtie is found
-Environment="PATH=/home/jeff/micromamba/envs/probedesign/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PATH=/home/jeff/miniforge3/envs/probedesign/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="HOME=/home/jeff"
 
 # Resource limits
@@ -671,12 +664,12 @@ The systemd service runs without shell initialization, so conda's PATH isn't set
 
 ```bash
 # Find where bowtie is installed
-micromamba activate probedesign
+conda activate probedesign
 which bowtie
-# Example: /home/<username>/micromamba/envs/probedesign/bin/bowtie
+# Example: /home/<username>/miniforge3/envs/probedesign/bin/bowtie
 
 # The PATH in the service file must include that directory:
-# Environment="PATH=/home/<username>/micromamba/envs/probedesign/bin:..."
+# Environment="PATH=/home/<username>/miniforge3/envs/probedesign/bin:..."
 ```
 
 ### App accessible on VM but not from other machines
@@ -789,9 +782,11 @@ If you later decide to enable automatic repeat masking, follow these steps. This
 ### 1. Install RepeatMasker via conda
 
 ```bash
-micromamba activate probedesign
-micromamba install -c bioconda -c conda-forge repeatmasker -y
+conda activate probedesign
+mamba install -n probedesign -c bioconda -c conda-forge repeatmasker -y
 ```
+
+RepeatMasker isn't in `environment.yml`, and `setup_all.sh` updates the env with `--prune`, which removes packages the file doesn't list. Reinstall it after each dependency update, or add it to `environment.yml`.
 
 ### 2. Download the Dfam database (Mammalia partition)
 
@@ -819,7 +814,7 @@ gunzip dfam39_full.7.h5.gz    # This creates a ~56 GB file
 ### 3. Verify RepeatMasker
 
 ```bash
-micromamba activate probedesign
+conda activate probedesign
 RepeatMasker -v       # Should print version
 RepeatMasker -species human -dir /tmp/rm_test tests/regression/CDKN1A_32/CDKN1A.fa
 ls /tmp/rm_test/      # Should contain CDKN1A.fa.masked
@@ -832,6 +827,14 @@ sudo systemctl restart probedesign
 ```
 
 RepeatMasker will now be detected automatically by the app's prerequisite check. The "Auto RepeatMasker" option will become available in the sidebar.
+
+---
+
+## History
+
+**2026-11-02 — micromamba → Miniforge.** The app runs from `~/miniforge3/envs/probedesign`, built by `setup_all.sh` with mamba; the SELinux rule and the service's `ExecStart` and `PATH` point there (Steps 3 and 7).
+- Removed: `~/micromamba`, the micromamba program in `~/.local/bin`, its `~/.bashrc` block and its SELinux rule. `~/micromamba` also held `napari-omero-bigfish`, the env for `bigfish-pypeline`'s napari scripts, so that env needs rebuilding before napari is used on this VM again.
+- What went wrong on the way: `setup_all.sh` then picked micromamba whenever it was on PATH, so the first build went into micromamba's default folder (`~/.local/share/mamba`); the script no longer supports micromamba. And deleting the env a running service uses leaves the app answering but broken (bowtie gone) until it is restarted on a new env.
 
 ---
 
