@@ -1,16 +1,17 @@
 # ProbeDesign
 
-> Design oligonucleotide probes for single molecule RNA FISH experiments.
+> Design oligonucleotide probes for single molecule RNA FISH (smFISH) and HCR v3 experiments.
 
 This repo is a fork of https://github.com/arjunrajlaboratory/ProbeDesign from the Raj Lab.
 
-ProbeDesign creates oligonucleotide probes for single molecule RNA FISH experiments. It selects optimal probe sequences based on:
+ProbeDesign creates oligonucleotide probes for smFISH and HCR v3 split-initiator FISH. It selects optimal probe sequences based on:
 
 - **Thermodynamic properties** — targets specific Gibbs free energy for RNA-DNA hybridization (Sugimoto 1995)
 - **Sequence masking** — avoids cross-hybridization to pseudogenes, repeats, and repetitive genomic regions
 - **Optimal spacing** — uses dynamic programming to find the best probe placements
 - **Mixed-length probes** — variable-length oligos (e.g. 18-22 bp) to maximise probe count on GC-variable sequences
 - **Low-complexity filtering** — excludes probes with homopolymer or dinucleotide repeats (L-mask)
+- **HCR v3 split-initiator pairs** — two 25-nt halves per pair, 13 amplifiers (B1–B17)
 
 ## Development Status
 
@@ -52,7 +53,7 @@ ProbeDesign creates oligonucleotide probes for single molecule RNA FISH experime
 #    See Section 2 for details
 
 # 2. Clone and set up
-git clone https://github.com/JYLeeSci/smFISHProbeDesign.git
+git clone https://github.com/JeffLeeLab/smFISHProbeDesign.git
 cd smFISHProbeDesign
 chmod +x setup_all.sh
 ./setup_all.sh          # ~18 min first run (downloads genome indices)
@@ -62,7 +63,8 @@ mamba activate probedesign   # or: conda activate probedesign
 streamlit run streamlit_app/app.py
 
 # 4. Or use the CLI
-probedesign design input.fa --probes 48 --pseudogene-mask --genome-mask
+probedesign design input.fa --probes 48 --pseudogene-mask --genome-mask      # smFISH
+probedesign hcrdesign input.fa --pairs 30 -a B1 --pseudogene-mask --genome-mask  # HCR
 ```
 
 ---
@@ -90,7 +92,7 @@ You need **one** of `mamba` or `conda`. The setup script auto-detects whichever 
 ### Step 2 — Clone and Run Setup
 
 ```bash
-git clone https://github.com/JYLeeSci/smFISHProbeDesign.git
+git clone https://github.com/JeffLeeLab/smFISHProbeDesign.git
 cd smFISHProbeDesign
 chmod +x setup_all.sh
 ./setup_all.sh
@@ -98,7 +100,7 @@ chmod +x setup_all.sh
 
 The script will:
 1. Create a `probedesign` conda environment (Python 3.11 + Bowtie 1.3.1)
-2. Install the `probedesign` package + Streamlit
+2. Install the `probedesign` package and the web-app dependencies (Streamlit, pandas, pyarrow, matplotlib, TransQuant)
 3. Build pseudogene alignment indices (~1 min)
 4. Download genome alignment indices (~12 min, ~6.7 GB)
 5. Run validation tests
@@ -126,17 +128,26 @@ Without `environment.yml`:
 ```bash
 mamba create -n probedesign \
     -c conda-forge -c bioconda --channel-priority strict \
-    python=3.11 "click>=8.0" bowtie=1.3.1 -y
+    python=3.11 "click>=8.0" bowtie=1.3.1 "pytest>=7.0" -y
 mamba activate probedesign
 pip install -e .
-pip install "streamlit>=1.32" "pandas>=1.5"
+pip install "streamlit>=1.32" "pandas>=1.5" "pyarrow>=14.0" "matplotlib>=3.8"
+pip install "git+https://github.com/JeffLeeLab/TransQuant-probe-weight.git@v0.2.0"
 ```
+
+### Running Tests
+
+```bash
+python -m pytest tests/      # unit tests (HCR designer)
+```
+
+`setup_all.sh` also runs a regression check against `test_cases/CDKN1A_32/`.
 
 ---
 
 ## 3. Web App (Streamlit)
 
-The primary interface for probe design is a Streamlit web application.
+The primary interface for probe design is a Streamlit web application with four tabs in the top navigation bar: **smFISH**, **HCR**, **Isoform Explorer** and **TransQuant**.
 
 ### Launch
 
@@ -146,37 +157,58 @@ streamlit run streamlit_app/app.py
 # Opens http://localhost:8501
 ```
 
-### Single Mode
+### smFISH — Single Mode
 
 1. Upload or paste a FASTA file
 2. Adjust parameters in the sidebar (probes, oligo length, masking)
 3. Click **Design Probes**
-4. Download `_oligos.txt` and `_seq.txt`
+4. Download `_oligos.txt`, `_seq.txt`, the bowtie hit tables (when masking is on), and raw bowtie files (when **Save raw bowtie output** is ticked)
 
-### Batch Mode
+### smFISH — Batch Mode
 
-1. Switch to **Batch** mode
+1. Switch **Mode** to **Batch**
 2. Provide a folder of FASTA files (or upload multiple files)
-3. Set an output directory
-4. Click **Run Batch** — results are written per-file with a summary TSV
+3. Click **Run Batch**, then download all results as a ZIP plus `batch_summary.tsv`
+4. Optional: set an output directory under **Auto-save outputs** to also write results to disk on the server
 
-### Sidebar Parameters
+### smFISH Sidebar Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
+| Mode | Single sequence | Single sequence or Batch |
+| Species | human | Genome/pseudogene database |
 | Number of probes | 48 | Target probe count (no upper limit) |
-| Oligo length mode | Fixed (20 bp) | Fixed length or mixed range (e.g. 18-22 bp) |
+| Oligo length mode | Fixed (20 bp) | Fixed length or mixed range (e.g. 18-22 bp); 10–60 bp |
 | Spacer length | 2 bp | Minimum gap between probes (no upper limit) |
 | Target Gibbs FE | −23.0 kcal/mol | Optimal binding free energy |
 | Allowable Gibbs range | −26 to −20 | Probes outside this are excluded |
-| Species | human | Genome/pseudogene database |
+| Homopolymer / Dinucleotide repeats | 5 / 3 | Low-complexity (L-mask) thresholds, 3–10 |
 | Pseudogene mask | on | Filter probes matching pseudogenes |
 | Genome mask | on | Filter repetitive genome regions |
-| RepeatMasker | off | Auto-detect repeats (requires extra setup) |
+| Bowtie index directory | `<repo>/bowtie_indexes` | Shown when a bowtie mask is on |
+| Save raw bowtie output | off | Add raw alignment files to the downloads |
+| RepeatMasker | None | None, Auto (requires extra setup), or provide a masked FASTA |
 
 ### Mixed-Length Probes
 
 Select **Mixed range** under "Oligo length mode" to use variable-length probes (e.g. 18-22 bp). This maximises probe count on sequences with variable GC content — GC-rich regions get shorter probes, AT-rich regions get longer probes, all within the same Gibbs FE target range.
+
+### HCR
+
+The **HCR** tab designs HCR v3 split-initiator probe pairs. Each pair is two 25-nt probes separated by a 2-nt gap on the target, with half-initiator sequences attached. The two halves hybridise independently, so ΔG targets apply **per 25-nt half**. Single and batch modes work as for smFISH. Downloads are `_HCR_oligos.txt`, `_HCR_seq.txt` and `_HCR_hits.txt`; batch mode adds a ZIP and `hcr_batch_summary.tsv`.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| Amplifier | B1 | B1–B5, B7, B9–B11, B13–B15, B17 (B7+ use a `WW` degenerate spacer) |
+| Number of pairs | 30 | Target pair count |
+| Pair spacing | 2 nt | Minimum gap between consecutive 52-nt pair blocks |
+| Target ΔG per half | −31.0 kcal/mol | Optimal binding free energy per half |
+| Strict ΔG range | −35 to −27 | Range each half must satisfy |
+| Asymmetric ΔG leniency | off | Let one half go down to the **Lenient ΔG floor** (−42) |
+| Homopolymer / Dinucleotide repeats | 5 / 3 | Low-complexity (L-mask) thresholds |
+| Pseudogene / Genome mask | on / on | Bowtie off-target filters |
+| Asymmetric bowtie | off | Only require one half to be free of off-target hits |
+| Resolve WW spacer | blank | Replace `WW` with explicit bases (e.g. `AA`) for B7+ |
 
 ### Isoform Explorer
 
@@ -197,7 +229,7 @@ The **TransQuant** tab (top navigation bar) embeds the [TransQuant probe-weight 
 
 A standalone, browser-only version (no install needed) is hosted at [jeffleelab.github.io/TransQuant-probe-weight](https://jeffleelab.github.io/TransQuant-probe-weight/).
 
-The embedded version is pinned to a release tag in `environment.yml` (`git+https://github.com/JeffLeeLab/TransQuant-probe-weight.git@v0.2.0`). To update it: bump the `@<tag>` in `environment.yml`, then re-run `./setup_all.sh` or `pip install --upgrade "git+https://github.com/JeffLeeLab/TransQuant-probe-weight.git@<new-tag>"` inside the `probedesign` environment.
+The embedded version is pinned to a release tag (currently `v0.2.0`). To update it, bump the `@<tag>` in all three places it appears — `environment.yml`, `setup_all.sh` and the install hint in `streamlit_app/pages/transquant.py` — then run `pip install --upgrade "git+https://github.com/JeffLeeLab/TransQuant-probe-weight.git@<new-tag>"` inside the `probedesign` environment (or re-run `./setup_all.sh`).
 
 ---
 
@@ -214,7 +246,8 @@ Usage: probedesign design [OPTIONS] INPUT_FILE
 Options:
   -n, --probes INTEGER            Number of probes to design  [default: 48]
   -l, --oligo-length TEXT         Oligo length: single int (e.g. 20) or range
-                                  for mixed lengths (e.g. 18-22)  [default: 20]
+                                  for mixed lengths (e.g. 18-22; range bounds
+                                  10-60)  [default: 20]
   -s, --spacer-length INTEGER     Minimum gap between probes  [default: 2]
   -g, --target-gibbs FLOAT        Target Gibbs free energy in kcal/mol  [default: -23]
   --allowable-gibbs TEXT          Allowable Gibbs FE range as min,max  [default: -26,-20]
@@ -226,7 +259,8 @@ Options:
                                   Mask regions that align to pseudogenes  [default: off]
   --genome-mask / --no-genome-mask
                                   Mask repetitive genomic regions  [default: off]
-  --index-dir DIRECTORY           Directory containing bowtie indexes (default: auto-detect)
+  --index-dir DIRECTORY           Directory containing bowtie indexes
+                                  [default: <repo>/bowtie_indexes]
   --repeatmask-file PATH          FASTA file with N's marking repeat regions (manual masking)
   --repeatmask / --no-repeatmask  Run RepeatMasker automatically to mask repeats  [default: off]
   --hp-threshold INTEGER          Homopolymer repeat threshold for L-mask (probes with
@@ -238,6 +272,39 @@ Options:
   --save-bowtie-raw               Save raw bowtie alignment output (produces large files)
   --help                          Show this message and exit.
 ```
+
+### `probedesign hcrdesign`
+
+Designs HCR v3 split-initiator probe pairs. ΔG values are **per 25-nt half**. Don't use `design -l 52` for HCR.
+
+```
+Usage: probedesign hcrdesign [OPTIONS] INPUT_FILE
+
+Options:
+  -p, --pairs INTEGER             Number of probe pairs to design  [default: 30]
+  -a, --amplifier [B1|B2|B3|B4|B5|B7|B9|B10|B11|B13|B14|B15|B17]
+                                  HCR amplifier  [default: B1]
+  -g, --target-gibbs FLOAT        Target ΔG per 25-nt half  [default: -31.0]
+  --allowable-gibbs TEXT          Strict ΔG range as min,max  [default: -35,-27]
+  --asymmetric-gibbs              One half strict, one lenient
+  --lenient-gibbs-min FLOAT       Floor ΔG for the lenient half  [default: -42.0]
+  --asymmetric-bowtie             Require only one half to be bowtie-clean
+  --pair-spacing INTEGER          Minimum gap between 52-nt pair blocks  [default: 2]
+  -s, --species [human|mouse|elegans|drosophila|rat]
+                                  Species for masking databases  [default: human]
+  --pseudogene-mask / --no-pseudogene-mask   [default: off]
+  --genome-mask / --no-genome-mask           [default: off]
+  --index-dir DIRECTORY           [default: <repo>/bowtie_indexes]
+  --repeatmask-file PATH          FASTA file with N's marking repeat regions
+  --hp-threshold INTEGER          Homopolymer threshold  [default: 5; range: 3-10]
+  --di-threshold INTEGER          Dinucleotide threshold  [default: 3; range: 3-10]
+  --resolve-spacer TEXT           Replace WW spacer with explicit bases (e.g. AA)
+  -o, --output TEXT               Output file prefix
+  --save-bowtie-raw               Save raw bowtie alignment output
+  -q, --quiet                     Suppress output to stdout
+```
+
+Note that `-s` means `--species` here but `--spacer-length` in `design`.
 
 ### `probedesign analyze`
 
@@ -270,13 +337,18 @@ probedesign design input.fa --probes 48 -l 18-22
 # Repeat masking from a pre-masked file (N's mark repeats)
 probedesign design input.fa --probes 32 --repeatmask-file input_masked.fa
 
-# HCR probes (52 bp, adjusted thermodynamic targets)
-probedesign design input.fa --probes 20 -l 52 \
-  --target-gibbs -60 --allowable-gibbs -80,-40
-
 # Mouse gene, all masking, custom output prefix
 probedesign design my_gene.fa --probes 48 --species mouse \
   --pseudogene-mask --genome-mask -o MyGene_probes
+
+# HCR: 30 pairs for amplifier B1 with masking
+probedesign hcrdesign input.fa --pairs 30 -a B1 --pseudogene-mask --genome-mask
+
+# HCR: relax ΔG on one half when a target is hard to cover
+probedesign hcrdesign input.fa -p 25 -a B2 --asymmetric-gibbs
+
+# HCR: B7+ amplifier with WW spacer resolved to AA
+probedesign hcrdesign input.fa -p 30 -a B9 --resolve-spacer AA
 ```
 
 ---
@@ -315,6 +387,8 @@ Probes containing homopolymer runs (e.g. `AAAAA`) or dinucleotide repeats (e.g. 
 | C. elegans | `elegans` | Manual | Manual |
 | Rat | `rat` | Manual | Manual |
 
+`setup_all.sh` builds or downloads indices for human, mouse and drosophila. For elegans or rat, build the indices yourself into `bowtie_indexes/`, named `celegansPseudo` / `celegans` and `ratPseudo` / `rat`.
+
 ---
 
 ## 6. Output Files
@@ -343,8 +417,9 @@ Each block shows:
 - **P line** (when pseudogene mask used): `P` = masked
 - **B line** (when genome mask used): `B` = masked
 - **F line** (always): `F` = thermodynamically excluded, base = valid probe start
+- **L line** (always): `L` = probe start excluded by the low-complexity filter
 - **Probe complement line**: reverse-complement sequence placed below the target
-- **Probe label line**: `Prb# N, Pos X, FE Y, GC Z` for each probe
+- **Probe label line**: `Prb# N,Pos X,FE Y,GC Z` for each probe
 
 ### Additional files (when masking is enabled)
 
@@ -354,6 +429,15 @@ Each block shows:
 | `<name>_bowtie_genome.txt` | Per-position hit counts from genome search (12/14/16-mers) |
 | `<name>_bowtie_*_raw.txt` | Raw bowtie alignment output (only with `--save-bowtie-raw`) |
 
+### HCR outputs (`hcrdesign` / HCR tab)
+
+| File | Content |
+|------|---------|
+| `<name>_HCR_oligos.txt` | TSV with header: `pair, half (P1/P2), start, GC%, Tm, Gibbs, strict (yes/no), full_oligo, name`. `full_oligo` includes the half-initiator and spacer. Names are `<name>_HCR<amp>_NN` (odd = P1, even = P2) |
+| `<name>_HCR_seq.txt` | Sequence map with mask lines and pair annotations |
+| `<name>_HCR_hits.txt` | Per-pair, per-half bowtie hit counts with strict/lenient annotation |
+| `<name>_HCR_bowtie_*_raw.txt` | Raw bowtie output (only with `--save-bowtie-raw`; CLI only) |
+
 ---
 
 ## 7. Troubleshooting
@@ -362,9 +446,10 @@ Each block shows:
 |---------|----------|
 | `mamba / conda: command not found` | Restart terminal after installing; re-run installer if needed |
 | `bowtie: command not found` | Activate environment: `mamba activate probedesign` |
+| `Warning: Pseudogene/Genome masking failed: Could not find bowtie executable` | Bowtie isn't on `PATH`, so the design ran **without** that mask. Activate the environment and re-run |
 | Wrong bowtie (file manager, not aligner) | Only install via bioconda, not homebrew |
 | Setup fails at pseudogene indices | Check `probedesign/pseudogeneDBs/*.fasta` exist |
-| Genome download interrupted | Re-run `./setup_all.sh` (resumes automatically) |
+| Genome download interrupted | Re-run `./setup_all.sh`. Species already downloaded are skipped; the interrupted one restarts |
 | `streamlit: command not found` | Activate environment first |
 | Port 8501 in use | `streamlit run streamlit_app/app.py --server.port 8502` |
 | Windows | Use WSL2 Ubuntu terminal, not PowerShell |
@@ -376,26 +461,25 @@ Each block shows:
 ```
 smFISHProbeDesign/
 ├── src/probedesign/          # Python package
-│   ├── cli.py                #   Click-based CLI
-│   ├── core.py               #   Probe design algorithm (badness, DP, mixed-length)
+│   ├── cli.py                #   Click CLI: design, hcrdesign, analyze
+│   ├── core.py               #   smFISH algorithm (badness, DP, mixed-length)
+│   ├── hcr.py                #   HCR split-initiator pair design
 │   ├── thermodynamics.py     #   Gibbs FE and Tm (Sugimoto 1995)
-│   ├── masking.py            #   Bowtie masking (pseudogene, genome, RepeatMasker)
+│   ├── masking.py            #   Bowtie masking (pseudogene, genome), RepeatMasker, low-complexity
 │   ├── sequence.py           #   Sequence utilities
 │   ├── fasta.py              #   FASTA I/O
-│   └── output.py             #   Output file generation
+│   ├── output.py             #   smFISH output files
+│   └── hcr_output.py         #   HCR output files
 ├── streamlit_app/            # Streamlit web app
-│   ├── app.py                #   Main UI
-│   └── utils.py              #   Backend helpers
-├── probedesign/              # Legacy MATLAB code
-│   ├── findprobesLocal.m     #   Original MATLAB implementation
-│   └── pseudogeneDBs/        #   Pseudogene FASTA files
-├── docs/                     # Documentation
-│   ├── BOWTIE.md             #   Bowtie setup guide
-│   ├── REPEATMASKER.md       #   RepeatMasker setup guide
-│   ├── MIXED_LENGTH_PLAN.md  #   Mixed-length design plan
-│   ├── probe_design_principles.md  # Algorithm details
-│   └── summary.md            #   Development notes
-├── test_cases/               # Validation test cases
+│   ├── app.py                #   Entry point + top navigation
+│   ├── pages/                #   smfish.py, hcr.py, isoform_explorer.py, transquant.py
+│   ├── utils.py              #   Backend helpers (run/batch wrappers, validation)
+│   └── isoform_data.py       #   Isoform Explorer data access + plot
+├── data/isoform_explorer/    # Isoform Explorer data (Ensembl v113, Parquet)
+├── probedesign/pseudogeneDBs/  # Pseudogene FASTA files (indices built from these)
+├── docs/                     # Documentation (see Further Reading)
+├── tests/                    # pytest unit tests
+├── test_cases/               # Regression inputs + reference outputs
 ├── bowtie_indexes/           # Genome/pseudogene indices (gitignored)
 ├── setup_all.sh              # Automated setup script
 ├── environment.yml           # Conda environment specification
@@ -415,3 +499,8 @@ smFISHProbeDesign/
 | [docs/BOWTIE.md](docs/BOWTIE.md) | Bowtie installation and index setup |
 | [docs/REPEATMASKER.md](docs/REPEATMASKER.md) | RepeatMasker installation (~56 GB database) |
 | [docs/MIXED_LENGTH_PLAN.md](docs/MIXED_LENGTH_PLAN.md) | Mixed-length probe design plan and analysis |
+| [docs/hcr_designer_plan.md](docs/hcr_designer_plan.md) | HCR split-initiator designer plan |
+| [docs/nucleotide_repeat_plan.md](docs/nucleotide_repeat_plan.md) | Low-complexity (L-mask) filter plan |
+| [docs/isoform_explorer/](docs/isoform_explorer/) | Isoform Explorer plan and data-build scripts |
+
+The `*_plan.md` files are design plans for features that have already shipped. They're kept for background, so where they disagree with the code, the code wins.
