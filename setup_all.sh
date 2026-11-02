@@ -342,16 +342,16 @@ fi
 echo -n "  [C] probe design — CDKN1A_32 (32 probes, 100% match expected) … "
 TMPDIR_C=$(mktemp -d)
 # Reference predates the low-complexity (L) filter; thresholds of 10 disable it
-run_in_env probedesign design test_cases/CDKN1A_32/CDKN1A.fa \
+run_in_env probedesign design tests/regression/CDKN1A_32/CDKN1A.fa \
     --probes 32 \
-    --repeatmask-file test_cases/CDKN1A_32/CDKN1A_repeatmasked.fa \
+    --repeatmask-file tests/regression/CDKN1A_32/CDKN1A_repeatmasked.fa \
     --hp-threshold 10 --di-threshold 10 \
     -o "$TMPDIR_C/test" --quiet 2>/dev/null
 
 ACTUAL_COUNT=$(wc -l < "$TMPDIR_C/test_oligos.txt" | tr -d ' ')
 if [ "$ACTUAL_COUNT" -eq 32 ]; then
     awk -F'\t' '{print $(NF-1)}' "$TMPDIR_C/test_oligos.txt" | sort > "$TMPDIR_C/actual.txt"
-    awk -F'\t' '{print $(NF-1)}' test_cases/CDKN1A_32/CDKN1A_32_genomemaskoff_oligos.txt | sort > "$TMPDIR_C/expected.txt"
+    awk -F'\t' '{print $(NF-1)}' tests/regression/CDKN1A_32/CDKN1A_32_genomemaskoff_oligos.txt | sort > "$TMPDIR_C/expected.txt"
     if diff -q "$TMPDIR_C/actual.txt" "$TMPDIR_C/expected.txt" >/dev/null 2>&1; then
         echo -e "${GREEN}PASS (32/32 match)${NC}"; ((PASS++)) || true
     else
@@ -407,7 +407,7 @@ if ! $SKIP_GENOME; then
     # ── Test G: KRT19 with full masking ───────────────────────────────────────
     echo -n "  [G] probe design — KRT19 (6 probes, pseudogene+genome mask, 100% match) … "
     TMPDIR_G=$(mktemp -d)
-    if run_in_env probedesign design test_cases/KRT19_withUTRs/KRT19_withUTRs.fa \
+    if run_in_env probedesign design tests/regression/KRT19_withUTRs/KRT19_withUTRs.fa \
             --probes 32 --pseudogene-mask --genome-mask \
             --index-dir "$INDEX_DIR" \
             -o "$TMPDIR_G/test" --quiet 2>/dev/null; then
@@ -415,7 +415,7 @@ if ! $SKIP_GENOME; then
         G_COUNT=$(wc -l < "$TMPDIR_G/test_oligos.txt" | tr -d ' ')
         if [ "$G_COUNT" -eq 6 ]; then
             awk -F'\t' '{print $(NF-1)}' "$TMPDIR_G/test_oligos.txt" | sort > "$TMPDIR_G/actual.txt"
-            awk -F'\t' '{print $(NF-1)}' test_cases/KRT19_withUTRs/KRT19_withUTRs_oligos.txt | sort > "$TMPDIR_G/expected.txt"
+            awk -F'\t' '{print $(NF-1)}' tests/regression/KRT19_withUTRs/KRT19_withUTRs_oligos.txt | sort > "$TMPDIR_G/expected.txt"
             if diff -q "$TMPDIR_G/actual.txt" "$TMPDIR_G/expected.txt" >/dev/null 2>&1; then
                 echo -e "${GREEN}PASS (6/6 match)${NC}"; ((PASS++)) || true
             else
