@@ -21,3 +21,6 @@ bowtie_indexes/
 # The derived parquet files under data/isoform_explorer/ ARE committed
 data/isoform_explorer/**/*.qs
 data/isoform_explorer/**/*_summary.csv
+
+# Claude Code local app-preview config
+.claude/launch.json
