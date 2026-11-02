@@ -4,7 +4,7 @@ Use haiku subagents for general codebase exploration and simple documentation up
 
 ## Project Overview
 
-ProbeDesign designs oligonucleotide probes for single-molecule RNA FISH (smFISH) and HCR v3 split-initiator FISH. The product is the **Python package** (`src/probedesign/`) and the **Streamlit web app** (`streamlit_app/`). The MATLAB code is legacy — don't modify it or chase MATLAB parity.
+ProbeDesign designs oligonucleotide probes for single-molecule RNA FISH (smFISH) and HCR v3 split-initiator FISH. The product is the **Python package** (`src/probedesign/`) and the **Streamlit web app** (`streamlit_app/`). The MATLAB code (in `legacy/`) is legacy — don't modify it or chase MATLAB parity.
 
 ## Environment
 
@@ -15,7 +15,7 @@ ProbeDesign designs oligonucleotide probes for single-molecule RNA FISH (smFISH)
 streamlit run streamlit_app/app.py      # web app
 probedesign design input.fa --probes 48             # smFISH
 probedesign hcrdesign input.fa --pairs 30 -a B1     # HCR
-python -m pytest tests/                 # unit tests
+python -m pytest tests/                 # HCR unit + smFISH regression tests
 ```
 
 The app pages put `src/` on `sys.path` themselves; the `probedesign` CLI needs the package installed (`pip install -e .`).
@@ -25,15 +25,13 @@ The app pages put `src/` on `sys.path` themselves; the `probedesign` CLI needs t
 ```
 src/probedesign/            Python package
 streamlit_app/              Web app (app.py = top nav only; pages/ = one file per tab)
-tests/                      pytest suite
-test_cases/                 Regression inputs + reference outputs (command.txt = parameters)
+tests/                      pytest suite; regression/ = reference inputs + outputs (command.txt = original MATLAB call)
 data/isoform_explorer/      Isoform Explorer data (Ensembl v113 Parquet; Hsap, Mmus, Dmel)
+data/pseudogeneDBs/         Pseudogene FASTAs that setup_all.sh builds indices from
 docs/                       Reference docs + implemented design plans
 bowtie_indexes/             Bowtie indices (gitignored; built/downloaded by setup_all.sh)
-probedesign/pseudogeneDBs/  Pseudogene FASTAs that setup_all.sh builds indices from
+legacy/                     Archived upstream MATLAB / Python 2 code — ignore
 ```
-
-Everything else under `probedesign/`, plus `DesignServer/`, `maskprobes/`, `panprobedesign/`, is legacy — ignore.
 
 ## Python package (`src/probedesign/`)
 
@@ -110,22 +108,15 @@ Each pair is two 25-nt halves with a 2-nt gap; the 52-nt block is the DP unit. T
 python -m pytest tests/
 ```
 
-The reference outputs in `test_cases/` predate the L mask. Switch it off (`--hp-threshold 10 --di-threshold 10`) to reproduce them exactly:
-
-```bash
-# matches CDKN1A_32_genomemaskoff_oligos.txt
-probedesign design test_cases/CDKN1A_32/CDKN1A.fa --probes 32 \
-  --repeatmask-file test_cases/CDKN1A_32/CDKN1A_repeatmasked.fa \
-  --hp-threshold 10 --di-threshold 10
-# matches KRT19_withUTRs_oligos.txt (needs bowtie on PATH + indices)
-probedesign design test_cases/KRT19_withUTRs/KRT19_withUTRs.fa --probes 32 \
-  --pseudogene-mask --genome-mask --hp-threshold 10 --di-threshold 10
-```
-
-- `mixed_length_test/` is an input only, with no reference. Use it with `-l 18-22`.
-- `mouseMITF/` is a mouse case: pseudogene masking plus a repeat-mask file, 24 probes.
-- `EIF1_CDS_HCR/` uses the old single-52-mer approach and is not a reference for `hcrdesign`.
-- If bowtie isn't on `PATH`, masking only prints a warning and carries on unmasked. When calling the env's python directly, add `~/miniforge3/envs/probedesign/bin` to `PATH`.
+- `test_hcr.py`: HCR unit tests.
+- `test_smfish_regression.py`: smFISH against the references in `tests/regression/`:
+  - CDKN1A (repeat-mask file), also through the CLI;
+  - the L mask;
+  - mixed length;
+  - KRT19 and mouseMITF with pseudogene and genome masks. These skip if bowtie or the indices are missing.
+- The references predate the L mask. Tests pass `--hp-threshold 10 --di-threshold 10` (the maximum) to effectively switch it off; do the same when comparing by hand.
+- `mixed_length_test/` is an input only, with no reference. `EIF1_CDS_HCR/` uses the old single-52-mer approach and is not a reference for `hcrdesign`.
+- If bowtie isn't on `PATH`, masking only prints a warning and carries on unmasked. The tests put the interpreter's `bin/` on `PATH`. When running the CLI with the env's python directly, add `~/miniforge3/envs/probedesign/bin` yourself.
 
 ## Docs
 

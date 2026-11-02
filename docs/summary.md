@@ -84,14 +84,14 @@ Streamlit and pandas are required for the web GUI.
 
 ### 1.3 Build Pseudogene Indices
 
-The repository ships pseudogene FASTA files in `probedesign/pseudogeneDBs/`. We build Bowtie 1 indices (`.ebwt`) from them:
+The repository ships pseudogene FASTA files in `data/pseudogeneDBs/`. We build Bowtie 1 indices (`.ebwt`) from them:
 
 ```bash
 mkdir -p bowtie_indexes
 
-bowtie-build probedesign/pseudogeneDBs/human.fasta       bowtie_indexes/humanPseudo
-bowtie-build probedesign/pseudogeneDBs/mouse.fasta       bowtie_indexes/mousePseudo
-bowtie-build probedesign/pseudogeneDBs/drosophila.fasta  bowtie_indexes/drosophilaPseudo
+bowtie-build data/pseudogeneDBs/human.fasta       bowtie_indexes/humanPseudo
+bowtie-build data/pseudogeneDBs/mouse.fasta       bowtie_indexes/mousePseudo
+bowtie-build data/pseudogeneDBs/drosophila.fasta  bowtie_indexes/drosophilaPseudo
 ```
 
 | Species | Index prefix | Sequences | Size | Build time |
@@ -350,15 +350,16 @@ All changes are **additive** — no existing function signatures were broken, an
 
 ### 5.1 Test Cases
 
-The reference outputs predate the low-complexity (L) filter, so the commands below switch it off with `--hp-threshold 10 --di-threshold 10`.
+The reference outputs predate the low-complexity (L) filter, so the commands below switch it off with `--hp-threshold 10 --di-threshold 10`. All three cases are automated in `tests/test_smfish_regression.py`.
 
 | Test | Command | Expected | Result (2026-11-02) |
 |------|---------|----------|--------|
 | CDKN1A_32 | `probedesign design CDKN1A.fa --probes 32 --repeatmask-file CDKN1A_repeatmasked.fa --hp-threshold 10 --di-threshold 10` | Matches `CDKN1A_32_genomemaskoff_oligos.txt` (32/32) | **PASS** |
 | KRT19 | `probedesign design KRT19_withUTRs.fa --probes 32 --pseudogene-mask --genome-mask --hp-threshold 10 --di-threshold 10` | Matches `KRT19_withUTRs_oligos.txt` (6/6) | **PASS** |
-| HCR | `python -m pytest tests/` | All pass | **PASS (37 tests)** |
+| mouseMITF | `probedesign design mouseMITF.fa --probes 24 --species mouse --pseudogene-mask --genome-mask --repeatmask-file mouseMITF_repeatmasked.fa --hp-threshold 10 --di-threshold 10` | Matches `mouseMITF_oligos.txt` (24/24) | **PASS** |
+| pytest | `python -m pytest tests/` | All pass | **PASS (44 tests: 37 HCR, 7 smFISH)** |
 
-`test_cases/EIF1_CDS_HCR/` is an old single-52-mer design and was superseded by `probedesign hcrdesign` (see `probe_design_principles.md` §10).
+`tests/regression/EIF1_CDS_HCR/` is an old single-52-mer design and was superseded by `probedesign hcrdesign` (see `probe_design_principles.md` §10).
 
 ### 5.2 Running Tests
 
@@ -366,7 +367,7 @@ The reference outputs predate the low-complexity (L) filter, so the commands bel
 # Setup plus validation checks (re-running skips completed steps):
 ./setup_all.sh
 
-# Unit tests only:
+# HCR unit tests + smFISH regression tests:
 python -m pytest tests/
 ```
 
@@ -422,6 +423,6 @@ bowtie --version               # bowtie-align-s version 1.3.1
 | Streamlit app | `streamlit_app/app.py` (pages in `streamlit_app/pages/`) |
 | Conda environment file | `environment.yml` |
 | Bowtie indices | `bowtie_indexes/` |
-| Pseudogene FASTAs | `probedesign/pseudogeneDBs/` |
-| Test cases | `test_cases/` |
+| Pseudogene FASTAs | `data/pseudogeneDBs/` |
+| Test cases | `tests/regression/` |
 | Setup script | `setup_all.sh` |

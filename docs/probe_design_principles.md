@@ -328,10 +328,10 @@ Identifies regions that align to known pseudogene sequences, which could cause c
 
 | Species | Index Prefix | FASTA Source |
 |---------|-------------|--------------|
-| human | `humanPseudo` | `probedesign/pseudogeneDBs/human.fasta` |
-| mouse | `mousePseudo` | `probedesign/pseudogeneDBs/mouse.fasta` |
-| drosophila | `drosophilaPseudo` | `probedesign/pseudogeneDBs/drosophila.fasta` |
-| elegans | `celegansPseudo` | `probedesign/pseudogeneDBs/elegans.fasta` |
+| human | `humanPseudo` | `data/pseudogeneDBs/human.fasta` |
+| mouse | `mousePseudo` | `data/pseudogeneDBs/mouse.fasta` |
+| drosophila | `drosophilaPseudo` | `data/pseudogeneDBs/drosophila.fasta` |
+| elegans | `celegansPseudo` | `data/pseudogeneDBs/elegans.fasta` |
 | rat | `ratPseudo` | No FASTA shipped (partial support) |
 
 **Code reference:** `src/probedesign/masking.py` — `pseudogene_mask()`
@@ -511,7 +511,7 @@ For each selected position `i`:
 | 6 | Probe sequence | `gtctcagaagctgcgattcg` |
 | 7 | Probe name | `KRT19_withUTRs_1` |
 
-The reference files in `test_cases/` lack the Start column.
+The reference files in `tests/regression/` lack the Start column.
 
 **`_seq.txt`** — Visual alignment wrapped at 110 characters:
 
@@ -633,4 +633,4 @@ Thermodynamic constants (salt, primer concentration, temperature) match smFISH.
 
 **Tests:** `tests/test_hcr.py`. **Design background:** [hcr_designer_plan.md](hcr_designer_plan.md).
 
-`test_cases/EIF1_CDS_HCR/` predates `hcrdesign`. It holds an old single-52-mer design and is not a reference for this pipeline.
+`tests/regression/EIF1_CDS_HCR/` predates `hcrdesign`. It holds an old single-52-mer design and is not a reference for this pipeline.

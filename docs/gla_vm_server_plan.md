@@ -222,13 +222,13 @@ Test CLI probe design with pseudogene masking to confirm the index is found:
 cd ~/Github/smFISHProbeDesign
 
 # No masking — fast sanity check
-probedesign design test_cases/CDKN1A_32/CDKN1A.fa --probes 32 \
-  --repeatmask-file test_cases/CDKN1A_32/CDKN1A_repeatmasked.fa \
+probedesign design tests/regression/CDKN1A_32/CDKN1A.fa --probes 32 \
+  --repeatmask-file tests/regression/CDKN1A_32/CDKN1A_repeatmasked.fa \
   -o /tmp/test_cdkn1a --quiet
 cat /tmp/test_cdkn1a_oligos.txt | wc -l   # Should print: 32
 
 # With pseudogene masking (verifies index auto-detection)
-probedesign design test_cases/KRT19_withUTRs/KRT19_withUTRs.fa --probes 32 \
+probedesign design tests/regression/KRT19_withUTRs/KRT19_withUTRs.fa --probes 32 \
   --pseudogene-mask --quiet -o /tmp/test_krt19
 echo "Exit code: $?"   # Should print: Exit code: 0
 ```
@@ -543,7 +543,7 @@ https://shinytest.mvls.gla.ac.uk/probedesign/
 
 **Test a probe design run:**
 
-1. Paste or upload a FASTA sequence (e.g., from `test_cases/CDKN1A_32/CDKN1A.fa`)
+1. Paste or upload a FASTA sequence (e.g., from `tests/regression/CDKN1A_32/CDKN1A.fa`)
 2. Set probes to 32
 3. Enable Pseudogene mask and Genome mask
 4. Click **Design Probes**
@@ -812,7 +812,7 @@ gunzip dfam39_full.7.h5.gz    # This creates a ~56 GB file
 ```bash
 micromamba activate probedesign
 RepeatMasker -v       # Should print version
-RepeatMasker -species human -dir /tmp/rm_test test_cases/CDKN1A_32/CDKN1A.fa
+RepeatMasker -species human -dir /tmp/rm_test tests/regression/CDKN1A_32/CDKN1A.fa
 ls /tmp/rm_test/      # Should contain CDKN1A.fa.masked
 ```
 

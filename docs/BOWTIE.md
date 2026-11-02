@@ -31,14 +31,14 @@ All indexes live in `<repo>/bowtie_indexes/`. That is the default for `--index-d
 
 ### Pseudogene Indexes (`--pseudogene-mask`)
 
-These are built locally from the FASTA files in `probedesign/pseudogeneDBs/`. `setup_all.sh` builds human, mouse and drosophila. Manual equivalent:
+These are built locally from the FASTA files in `data/pseudogeneDBs/`. `setup_all.sh` builds human, mouse and drosophila. Manual equivalent:
 
 ```bash
 mkdir -p bowtie_indexes && cd bowtie_indexes
-bowtie-build ../probedesign/pseudogeneDBs/human.fasta      humanPseudo
-bowtie-build ../probedesign/pseudogeneDBs/mouse.fasta      mousePseudo
-bowtie-build ../probedesign/pseudogeneDBs/drosophila.fasta drosophilaPseudo
-bowtie-build ../probedesign/pseudogeneDBs/elegans.fasta    celegansPseudo   # optional, not built by setup
+bowtie-build ../data/pseudogeneDBs/human.fasta      humanPseudo
+bowtie-build ../data/pseudogeneDBs/mouse.fasta      mousePseudo
+bowtie-build ../data/pseudogeneDBs/drosophila.fasta drosophilaPseudo
+bowtie-build ../data/pseudogeneDBs/elegans.fasta    celegansPseudo   # optional, not built by setup
 ```
 
 ### Genome Indexes (`--genome-mask`)

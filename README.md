@@ -138,10 +138,10 @@ pip install "git+https://github.com/JeffLeeLab/TransQuant-probe-weight.git@v0.2.
 ### Running Tests
 
 ```bash
-python -m pytest tests/      # unit tests (HCR designer)
+python -m pytest tests/      # HCR unit tests + smFISH regression tests
 ```
 
-`setup_all.sh` also runs a regression check against `test_cases/CDKN1A_32/`.
+`tests/test_smfish_regression.py` reproduces the reference designs in `tests/regression/` (CDKN1A, KRT19, mouseMITF). The KRT19 and mouseMITF tests need bowtie and the human/mouse indices, and are skipped without them. `setup_all.sh` also checks CDKN1A and KRT19 against the same references.
 
 ---
 
@@ -448,7 +448,7 @@ Each block shows:
 | `bowtie: command not found` | Activate environment: `mamba activate probedesign` |
 | `Warning: Pseudogene/Genome masking failed: Could not find bowtie executable` | Bowtie isn't on `PATH`, so the design ran **without** that mask. Activate the environment and re-run |
 | Wrong bowtie (file manager, not aligner) | Only install via bioconda, not homebrew |
-| Setup fails at pseudogene indices | Check `probedesign/pseudogeneDBs/*.fasta` exist |
+| Setup fails at pseudogene indices | Check `data/pseudogeneDBs/*.fasta` exist |
 | Genome download interrupted | Re-run `./setup_all.sh`. Species already downloaded are skipped; the interrupted one restarts |
 | `streamlit: command not found` | Activate environment first |
 | Port 8501 in use | `streamlit run streamlit_app/app.py --server.port 8502` |
@@ -475,11 +475,13 @@ smFISHProbeDesign/
 │   ├── pages/                #   smfish.py, hcr.py, isoform_explorer.py, transquant.py
 │   ├── utils.py              #   Backend helpers (run/batch wrappers, validation)
 │   └── isoform_data.py       #   Isoform Explorer data access + plot
-├── data/isoform_explorer/    # Isoform Explorer data (Ensembl v113, Parquet)
-├── probedesign/pseudogeneDBs/  # Pseudogene FASTA files (indices built from these)
+├── data/
+│   ├── isoform_explorer/     #   Isoform Explorer data (Ensembl v113, Parquet)
+│   └── pseudogeneDBs/        #   Pseudogene FASTA files (indices built from these)
 ├── docs/                     # Documentation (see Further Reading)
-├── tests/                    # pytest unit tests
-├── test_cases/               # Regression inputs + reference outputs
+├── tests/                    # pytest suite (HCR unit + smFISH regression tests)
+│   └── regression/           #   Regression inputs + reference outputs
+├── legacy/                   # Archived upstream MATLAB / Python 2 code (not used)
 ├── bowtie_indexes/           # Genome/pseudogene indices (gitignored)
 ├── setup_all.sh              # Automated setup script
 ├── environment.yml           # Conda environment specification
