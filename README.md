@@ -101,7 +101,7 @@ chmod +x setup_all.sh
 
 The script will:
 1. Create a `probedesign` conda environment (Python 3.11 + Bowtie 1.3.1)
-2. Install the `probedesign` package and the web-app dependencies (Streamlit, pandas, pyarrow, matplotlib, TransQuant)
+2. Install the `probedesign` package and the web-app dependencies (Streamlit, pandas, pyarrow, matplotlib, openpyxl, TransQuant)
 3. Build pseudogene alignment indices (~1 min)
 4. Download genome alignment indices (~12 min, ~6.7 GB)
 5. Run validation tests
@@ -148,7 +148,7 @@ python -m pytest tests/      # HCR unit, smFISH regression, run-header and IDT p
 
 ## 3. Web App (Streamlit)
 
-The primary interface for probe design is a Streamlit web application with four tabs in the top navigation bar: **smFISH**, **HCR**, **Isoform Explorer** and **TransQuant**.
+The primary interface for probe design is a Streamlit web application with five tabs in the top navigation bar: **smFISH**, **HCR**, **Isoform Explorer**, **TransQuant** and **IDT Plate**.
 
 ### Launch
 
@@ -227,7 +227,7 @@ Mammalian data uses an adaptive TSL filter (TSL ≤ 2 where available, otherwise
 
 ### TransQuant
 
-The **TransQuant** tab (top navigation bar) embeds the [TransQuant probe-weight tool](https://github.com/JeffLeeLab/TransQuant-probe-weight) (external `transquant_w` package). Given the full genomic locus of a gene and a probe set, it computes the **probe weight factor W** (corrects transcription-site brightness for where probes bind relative to Pol II), the **gene length L**, and the **probe localisation profile N** — following the TransQuant methodology (Bahar Halpern & Itzkovitz, *Methods* 2016). It is fully self-contained — no inputs or results are shared with the smFISH / HCR / Isoform Explorer tabs.
+The **TransQuant** tab (top navigation bar) embeds the [TransQuant probe-weight tool](https://github.com/JeffLeeLab/TransQuant-probe-weight) (external `transquant_w` package). Given the full genomic locus of a gene and a probe set, it computes the **probe weight factor W** (corrects transcription-site brightness for where probes bind relative to Pol II), the **gene length L**, and the **probe localisation profile N** — following the TransQuant methodology (Bahar Halpern & Itzkovitz, *Methods* 2016). It is fully self-contained — no inputs or results are shared with the smFISH / HCR / Isoform Explorer / IDT Plate tabs.
 
 A standalone, browser-only version (no install needed) is hosted at [jeffleelab.github.io/TransQuant-probe-weight](https://jeffleelab.github.io/TransQuant-probe-weight/).
 
@@ -240,7 +240,7 @@ The **IDT Plate** tab combines probe sets from several runs into one IDT 96-well
 1. Upload `_oligos.txt` / `_HCR_oligos.txt` files, or a batch results ZIP. smFISH and HCR sets can share a plate.
 2. In the table, set the **Order** sets go onto plates, untick sets to leave out, and check the **Gene** column. Gene is the probe-set name without its region (`Eaat1-cmm` → `Eaat1`, `TDP-43-CDS-DmelCO` → `TDP-43`); edit it if the region wasn't stripped correctly.
 3. Set **Minimum oligos per plate** in the sidebar: 24 for standard 96-well plates (default), 48 for HOTPlates.
-4. Check the plate maps and download `IDT_plate-ordering_<YYYYMMDD>_<gene>_<gene>….xlsx`.
+4. Check the plate maps and download `IDT_plate-ordering_<YYYYMMDD>_<genes>.xlsx` (genes joined by `_`; a long list ends in `_+N`).
 
 Layout rules:
 - Wells fill down each column: A1–H1, then A2 …
@@ -503,6 +503,7 @@ Excel workbook for IDT's 96-well plate upload. One worksheet per plate, named af
 | Genome download interrupted | Re-run `./setup_all.sh`. Species already downloaded are skipped; the interrupted one restarts |
 | `streamlit: command not found` | Activate environment first |
 | Port 8501 in use | `streamlit run streamlit_app/app.py --server.port 8502` |
+| `IDT plate export needs openpyxl` | Re-run `./setup_all.sh`, or `pip install openpyxl` inside the `probedesign` environment |
 | Windows | Use WSL2 Ubuntu terminal, not PowerShell |
 
 ---
@@ -519,6 +520,7 @@ smFISHProbeDesign/
 │   ├── masking.py            #   Bowtie masking (pseudogene, genome), RepeatMasker, low-complexity
 │   ├── sequence.py           #   Sequence utilities
 │   ├── fasta.py              #   FASTA I/O
+│   ├── provenance.py         #   Run header for _seq.txt / _HCR_seq.txt
 │   ├── output.py             #   smFISH output files
 │   ├── hcr_output.py         #   HCR output files
 │   └── idt.py                #   IDT 96-well plate order (.xlsx)

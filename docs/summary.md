@@ -261,7 +261,8 @@ streamlit_app/
 │   ├── smfish.py            # smFISH sidebar, single/batch panels, downloads
 │   ├── hcr.py               # HCR sidebar, single/batch panels, downloads
 │   ├── isoform_explorer.py  # Isoform browser (no probe-design code)
-│   └── transquant.py        # Embeds transquant_w.ui.render()
+│   ├── transquant.py        # Embeds transquant_w.ui.render()
+│   └── idt_plate.py         # IDT Plate Builder: oligo files → 96-well plate order
 ├── utils.py          # Backend helpers shared by the smFISH and HCR pages
 ├── isoform_data.py   # Isoform Explorer data access + plot
 └── README.md         # Quick launch notes
@@ -277,6 +278,7 @@ streamlit_app/
 - `run_batch()` — Iterates FASTA files, tracks progress, writes outputs
 - `format_batch_summary()` / `write_batch_summary()` / `package_batch_results_zip()`: TSV summary and ZIP download for batch runs
 - `run_hcr_design()` / `run_hcr_batch()` and HCR summary/ZIP helpers: the HCR equivalents
+- `idt_plate_for_run()`: IDT plate order (.xlsx) for one run's oligos, behind the single-run download buttons
 
 ### 3.4 User Interface Layout (smFISH page)
 
@@ -369,7 +371,7 @@ The reference outputs predate the low-complexity (L) filter, so the commands bel
 | CDKN1A_32 | `probedesign design CDKN1A.fa --probes 32 --repeatmask-file CDKN1A_repeatmasked.fa --hp-threshold 10 --di-threshold 10` | Matches `CDKN1A_32_genomemaskoff_oligos.txt` (32/32) | **PASS** |
 | KRT19 | `probedesign design KRT19_withUTRs.fa --probes 32 --pseudogene-mask --genome-mask --hp-threshold 10 --di-threshold 10` | Matches `KRT19_withUTRs_oligos.txt` (6/6) | **PASS** |
 | mouseMITF | `probedesign design mouseMITF.fa --probes 24 --species mouse --pseudogene-mask --genome-mask --repeatmask-file mouseMITF_repeatmasked.fa --hp-threshold 10 --di-threshold 10` | Matches `mouseMITF_oligos.txt` (24/24) | **PASS** |
-| pytest | `python -m pytest tests/` | All pass | **PASS (85 tests: 38 HCR, 7 smFISH regression, 40 run header)** |
+| pytest | `python -m pytest tests/` | All pass | **PASS (112 tests: 38 HCR, 7 smFISH regression, 41 run header, 26 IDT plate)** |
 
 `tests/regression/EIF1_CDS_HCR/` is an old single-52-mer design and was superseded by `probedesign hcrdesign` (see `probe_design_principles.md` §10).
 
