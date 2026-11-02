@@ -2,7 +2,9 @@
 
 > Consolidated documentation covering installation, key findings, and the Streamlit web app.
 >
-> **Last updated**: 2026-02-18
+> **Last updated**: 2026-02-18 (sections 3.3, 3.4 and 5 refreshed 2026-11-02)
+>
+> This is a development log written before HCR, the Isoform Explorer, TransQuant and the multipage app existed. For current usage see the root `README.md`.
 
 ---
 
@@ -19,7 +21,7 @@
 
 ## 1. Installation Steps
 
-All steps below are automated in [`setup_all.sh`](setup_all.sh). This section explains what each step does.
+All steps below are automated in [`setup_all.sh`](../setup_all.sh). This section explains what each step does.
 
 ### 1.1 Mamba Environment
 
@@ -177,7 +179,7 @@ gunzip dfam39_full.7.h5.gz    # produces ~56 GB file; ensure ≥65 GB free
 - **Before**: Download genome FASTA → `bowtie-build` (1–3 hours, ~16 GB RAM for human)
 - **After**: Download pre-built `.bt2` (12 minutes total for all 3 species, no build step)
 
-**What we tested**: All 3 genome indices (human GRCh38, mouse mm10, drosophila BDGP6) were queried with Bowtie 1 using `.bt2` files. Bowtie reported hits correctly in every test. The full validation pipeline (`run_tests.sh`) also passes with `.bt2` genome indices.
+**What we tested**: All 3 genome indices (human GRCh38, mouse mm10, drosophila BDGP6) were queried with Bowtie 1 using `.bt2` files. Bowtie reported hits correctly in every test. The `setup_all.sh` validation checks also pass with `.bt2` genome indices.
 
 ### 2.2 Homebrew `bowtie` ≠ Bioinformatics Bowtie
 
@@ -254,15 +256,18 @@ The app was built with the following goals:
 
 ```
 streamlit_app/
-├── app.py                      # Streamlit UI: sidebar params, single/batch mode panels
-├── utils.py                    # Backend helpers: FASTA validation, design runner, batch runner
-├── setup_all.sh                # Automated setup script
-├── summary.md                  # This file — setup & development documentation
-├── probe_design_principles.md  # Detailed probe generation & filtering parameters
-└── README.md                   # Comprehensive end-user guide
+├── app.py            # Entry point: top navigation bar only
+├── pages/
+│   ├── smfish.py            # smFISH sidebar, single/batch panels, downloads
+│   ├── hcr.py               # HCR sidebar, single/batch panels, downloads
+│   ├── isoform_explorer.py  # Isoform browser (no probe-design code)
+│   └── transquant.py        # Embeds transquant_w.ui.render()
+├── utils.py          # Backend helpers shared by the smFISH and HCR pages
+├── isoform_data.py   # Isoform Explorer data access + plot
+└── README.md         # Quick launch notes
 ```
 
-**`app.py`** — Defines the sidebar (all parameters), input methods (file upload or paste), and result display (metrics, dataframe, download buttons). Two top-level modes are toggled with `st.radio`.
+**`pages/smfish.py`** (and `pages/hcr.py`): each page defines its own sidebar, input methods (file upload or paste) and result display (metrics, dataframe, download buttons). Single and batch modes are toggled with `st.radio`.
 
 **`utils.py`** — Provides:
 - `validate_fasta_text()` — Validates pasted FASTA (headers, valid base characters)
@@ -270,15 +275,17 @@ streamlit_app/
 - `check_prerequisites()` — Checks bowtie, RepeatMasker, and index file availability
 - `run_design()` — Wraps `design_probes()` with stdout capture and exception handling
 - `run_batch()` — Iterates FASTA files, tracks progress, writes outputs
-- `format_batch_summary()` / `write_batch_summary()` — TSV summary for batch runs
+- `format_batch_summary()` / `write_batch_summary()` / `package_batch_results_zip()`: TSV summary and ZIP download for batch runs
+- `run_hcr_design()` / `run_hcr_batch()` and HCR summary/ZIP helpers: the HCR equivalents
 
-### 3.4 User Interface Layout
+### 3.4 User Interface Layout (smFISH page)
 
 | Section | Location | Controls |
 |---------|----------|----------|
 | Mode toggle | Sidebar top | Radio: "Single sequence" / "Batch" |
 | Basic params | Sidebar | Number inputs for probes, oligo length, spacer, Gibbs FE |
 | Species | Sidebar | Selectbox: human, mouse, elegans, drosophila, rat |
+| Low-complexity filter | Sidebar | Number inputs: homopolymer (5) and dinucleotide (3) thresholds |
 | Masking toggles | Sidebar | Checkboxes: Pseudogene mask (on by default), Genome mask (on by default) |
 | Index directory | Sidebar | Text input (auto-filled to `bowtie_indexes/`) |
 | RepeatMasker | Sidebar expander | Radio: None / Auto / Provide file; file uploader |
@@ -343,20 +350,24 @@ All changes are **additive** — no existing function signatures were broken, an
 
 ### 5.1 Test Cases
 
-| Test | Command | Expected | Result |
+The reference outputs predate the low-complexity (L) filter, so the commands below switch it off with `--hp-threshold 10 --di-threshold 10`.
+
+| Test | Command | Expected | Result (2026-11-02) |
 |------|---------|----------|--------|
-| CDKN1A_32 | `probedesign design CDKN1A.fa --probes 32 --repeatmask-file CDKN1A_repeatmasked.fa` | 32/32 probes match MATLAB (100%) | **PASS** |
-| KRT19 | `probedesign design KRT19_withUTRs.fa --probes 32 --pseudogene-mask --genome-mask` | 6/6 probes match MATLAB (100%) | **PASS** |
-| EIF1 HCR | `probedesign design EIF1_Exons.fasta --probes 20 -l 52 --target-gibbs -60 --allowable-gibbs -80,-40 --pseudogene-mask --genome-mask` | ≥ 15/20 probes match (≥ 75%) | **PASS (15/20, 75%)** |
+| CDKN1A_32 | `probedesign design CDKN1A.fa --probes 32 --repeatmask-file CDKN1A_repeatmasked.fa --hp-threshold 10 --di-threshold 10` | Matches `CDKN1A_32_genomemaskoff_oligos.txt` (32/32) | **PASS** |
+| KRT19 | `probedesign design KRT19_withUTRs.fa --probes 32 --pseudogene-mask --genome-mask --hp-threshold 10 --di-threshold 10` | Matches `KRT19_withUTRs_oligos.txt` (6/6) | **PASS** |
+| HCR | `python -m pytest tests/` | All pass | **PASS (37 tests)** |
+
+`test_cases/EIF1_CDS_HCR/` is an old single-52-mer design and was superseded by `probedesign hcrdesign` (see `probe_design_principles.md` §10).
 
 ### 5.2 Running Tests
 
 ```bash
-# Quick validation (automated, all tests):
-./streamlit_app/setup_all.sh
+# Setup plus validation checks (re-running skips completed steps):
+./setup_all.sh
 
-# Or, if already set up:
-./run_tests.sh
+# Unit tests only:
+python -m pytest tests/
 ```
 
 ### 5.3 Resource Summary
@@ -408,7 +419,7 @@ bowtie --version               # bowtie-align-s version 1.3.1
 |------|------|
 | Python package | `src/probedesign/` |
 | CLI entry point | `src/probedesign/cli.py` |
-| Streamlit app | `streamlit_app/app.py` |
+| Streamlit app | `streamlit_app/app.py` (pages in `streamlit_app/pages/`) |
 | Conda environment file | `environment.yml` |
 | Bowtie indices | `bowtie_indexes/` |
 | Pseudogene FASTAs | `probedesign/pseudogeneDBs/` |

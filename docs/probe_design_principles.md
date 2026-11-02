@@ -1,8 +1,8 @@
 # ProbeDesign — Probe Generation & Filtering Parameters
 
-> **Purpose**: Document how the ProbeDesign Python pipeline generates, scores, filters, and selects oligonucleotide probes for smFISH experiments.
-> **Code base**: `src/probedesign/` in the `arjunrajlaboratory/ProbeDesign` repository (Python port of the MATLAB reference implementation).
-> **Last updated**: 2026-02-17
+> **Purpose**: Document how the ProbeDesign Python pipeline generates, scores, filters, and selects oligonucleotide probes for smFISH (Sections 1–9) and HCR v3 split-initiator pairs (Section 10).
+> **Code base**: `src/probedesign/` in `JeffLeeLab/smFISHProbeDesign`. Code references give the file (and function where useful). They leave out line numbers, which go stale.
+> **Last updated**: 2026-11-02
 
 ---
 
@@ -22,7 +22,7 @@
 7. [Dynamic Programming Optimization](#7-dynamic-programming-optimization)
 8. [Output: Probe Extraction & Reporting](#8-output-probe-extraction--reporting)
 9. [Parameter Reference Table](#9-parameter-reference-table)
-10. [HCR Probe Mode](#10-hcr-probe-mode)
+10. [HCR Split-Initiator Probes](#10-hcr-split-initiator-probes)
 
 ---
 
@@ -39,10 +39,10 @@ Input FASTA
     |                                                       Code: sequence.py
     v
 [3] Calculate Badness (thermodynamic scoring per position)
-    |   badness[i] = (dG[i] - target)^2  or  inf           Code: core.py:47-96
+    |   badness[i] = (dG[i] - target)^2  or  inf           Code: core.py
     v
 [4] Create F Mask (positions where badness == inf, BEFORE other masks)
-    |                                                       Code: core.py:262-340
+    |                                                       Code: core.py
     v
 [4b] Create L Mask (low-complexity: homopolymers & dinucleotide repeats)
     |                                                       Code: core.py
@@ -54,13 +54,13 @@ Input FASTA
     |                                                       Code: masking.py
     v
 [6] Merge masks into badness (any masked position => inf)
-    |                                                       Code: core.py:343-349
+    |                                                       Code: core.py
     v
 [7] Dynamic Programming — find optimal probe positions
-    |   minimizing average badness                          Code: core.py:116-202
+    |   minimizing average badness                          Code: core.py
     v
 [8] Extract Probes — reverse complement template to get probe sequences
-    |                                                       Code: core.py:370-389
+    |                                                       Code: core.py
     v
 [9] Write Output — _oligos.txt and _seq.txt
                                                             Code: output.py
@@ -101,7 +101,7 @@ The `>` character is treated as an invalid character. Any oligo window that cont
 
 When extracting the actual probe sequence from a selected position, `>` characters are skipped:
 ```python
-# core.py:373-377
+# core.py
 while len(template_region) < oligo_length and j < len(seq):
     if seq[j] != '>':
         template_region += seq[j]
@@ -120,7 +120,7 @@ minimum distance between probe starts = oligo_length + spacer_length
 
 With defaults (oligo_length=20, spacer_length=2), probe starts must be at least 22 bp apart. Since probes are 20 bp long, this creates a minimum 2 bp gap between consecutive probes.
 
-**Code reference:** `src/probedesign/core.py:139` — `probe_spacer_len = oligo_len + spacer_len`
+**Code reference:** `src/probedesign/core.py` — `probe_spacer_len = oligo_len + spacer_len`
 
 ---
 
@@ -134,7 +134,7 @@ Sugimoto et al. (1995), "Thermodynamic Parameters To Predict Stability of RNA/DN
 
 The model uses 16 dinucleotide stacking parameters for RNA-DNA hybrids:
 
-**Enthalpy ΔH (kcal/mol)** — `thermodynamics.py:20-25`:
+**Enthalpy ΔH (kcal/mol)** — `thermodynamics.py`:
 
 | | A | C | G | T |
 |---|---|---|---|---|
@@ -143,7 +143,7 @@ The model uses 16 dinucleotide stacking parameters for RNA-DNA hybrids:
 | **G** | -5.5 | -8.0 | -12.8 | -7.8 |
 | **T** | -7.8 | -8.6 | -10.4 | -11.5 |
 
-**Entropy ΔS (cal/(mol·K))** — `thermodynamics.py:28-33`:
+**Entropy ΔS (cal/(mol·K))** — `thermodynamics.py`:
 
 | | A | C | G | T |
 |---|---|---|---|---|
@@ -152,7 +152,7 @@ The model uses 16 dinucleotide stacking parameters for RNA-DNA hybrids:
 | **G** | -13.5 | -17.1 | -31.9 | -21.6 |
 | **T** | -23.2 | -22.9 | -28.4 | -36.4 |
 
-**Initialization terms** — `thermodynamics.py:36-37`:
+**Initialization terms** — `thermodynamics.py`:
 - ΔH_init = +1.9 kcal/mol
 - ΔS_init = -3.9 cal/(mol·K)
 
@@ -168,7 +168,7 @@ For an oligo of length k:
 where T = 310.15 K (37°C)
 ```
 
-**Code reference:** `src/probedesign/thermodynamics.py:45-85` — `thermo_rna_dna(seq)`
+**Code reference:** `src/probedesign/thermodynamics.py` — `thermo_rna_dna(seq)`
 
 ### Melting Temperature Calculation
 
@@ -183,7 +183,7 @@ where:
 
 The Tm equation uses the SantaLucia (1998) PNAS form with the OligoCalc salt correction term.
 
-**Code reference:** `src/probedesign/thermodynamics.py:83`
+**Code reference:** `src/probedesign/thermodynamics.py`
 
 ---
 
@@ -214,7 +214,7 @@ else:
 - `badness = inf` means the position is **completely excluded** (no probe can start here)
 - The F mask in the output file shows `F` at positions with `inf` badness, and the sequence character at positions with finite badness
 
-**Code reference:** `src/probedesign/core.py:47-96` — `calculate_badness()`
+**Code reference:** `src/probedesign/core.py` — `calculate_badness()`
 
 ### Invalid Character Detection
 
@@ -302,7 +302,7 @@ The `--repeatmask` and `--repeatmask-file` flags are **mutually exclusive**.
 
 **Visualization:** In the `_seq.txt` output, the R mask line shows `R` at masked positions and the original sequence character at unmasked positions.
 
-**Code reference:** `src/probedesign/core.py:272-292` (R mask creation), `src/probedesign/masking.py:449-571` (RepeatMasker integration)
+**Code reference:** `src/probedesign/core.py` (R mask creation), `src/probedesign/masking.py` (RepeatMasker integration)
 
 ### 6B. Pseudogene Masking (P Mask)
 
@@ -334,7 +334,7 @@ Identifies regions that align to known pseudogene sequences, which could cause c
 | elegans | `celegansPseudo` | `probedesign/pseudogeneDBs/elegans.fasta` |
 | rat | `ratPseudo` | No FASTA shipped (partial support) |
 
-**Code reference:** `src/probedesign/masking.py:232-272` — `pseudogene_mask()`
+**Code reference:** `src/probedesign/masking.py` — `pseudogene_mask()`
 
 ### 6C. Genome Masking (B Mask)
 
@@ -374,14 +374,14 @@ The three masks are combined with **OR logic**: if any pass masks a position, it
 | rat | `rat` | Build or download |
 | cow | `cow` | Build or download |
 
-**Code reference:** `src/probedesign/masking.py:275-326` — `genome_mask()`
+**Code reference:** `src/probedesign/masking.py` — `genome_mask()`
 
 ### 6D. Mask-to-Badness Conversion
 
 After all masks are computed and combined (OR-union), the combined mask is converted to badness scores:
 
 ```python
-# masking.py:329-352 — mask_to_badness()
+# masking.py — mask_to_badness()
 for each oligo start position i:
     if ANY nucleotide in seq[i : i + oligo_length] is masked:
         badness[i] = inf
@@ -391,7 +391,7 @@ This means a single masked nucleotide blocks all oligos that would overlap it.
 
 The mask-derived badness is **added** to the thermodynamic badness:
 ```python
-# core.py:343-349
+# core.py
 for i in range(len(badness)):
     if mask_badness[i] == inf:
         badness[i] = inf
@@ -447,7 +447,7 @@ score(k+1 probes) = (score(k probes) × k + badness[new_probe]) / (k + 1)
 
 This means the optimization seeks to minimize the **mean** badness, not the sum. All probes contribute equally to the final score.
 
-**Code reference:** `src/probedesign/core.py:99-113` — `_calc_score()`
+**Code reference:** `src/probedesign/core.py` — `_calc_score()`
 
 ### Backtracking
 
@@ -457,7 +457,7 @@ After filling the DP table, the algorithm backtracks from position `goodlen - 1`
 3. Repeat for `k-1`, `k-2`, ..., `0`
 4. Reverse the collected positions
 
-**Code reference:** `src/probedesign/core.py:178-202`
+**Code reference:** `src/probedesign/core.py`
 
 ### Solution Selection
 
@@ -465,7 +465,25 @@ The DP returns solutions for 1, 2, ..., N probes. The pipeline selects the **sol
 
 If fewer than N probes can be placed (e.g., too many masked positions), the solution with the most feasible probes is used.
 
-**Code reference:** `src/probedesign/core.py:366` — `solutions[-1]`
+### Mixed-Length DP (`-l 18-22`)
+
+With a length range, badness is a 2D table `badness[pos][len]` (`calculate_badness_mixed()`). Each cell is filtered independently by the F and L masks, and the P/B/R masks are applied per cell by `mask_to_badness_mixed()`. Because probes can differ in length, the DP is indexed by **end** position (`find_best_probes_mixed()`):
+
+```
+State: dp[e][k] = best average badness for k+1 probes, last probe ending at or before e
+
+For each end position e:
+  1. Copy forward: dp[e][k] = dp[e-1][k]
+  2. For each length L in [min_len, max_len], start x = e - L + 1:
+       k == 0: score = badness[x][L]
+       k  > 0: prev_end = x - spacer_length - 1
+               score = (dp[prev_end][k-1] * k + badness[x][L]) / (k + 1)
+       keep the minimum in dp[e][k], recording (x, L)
+```
+
+Every length is considered at every position, so the optimum covers placements and lengths jointly. GC-rich regions tend to get shorter probes and AT-rich regions longer ones, all against the same `target_gibbs` and allowable range. A single integer `-l` uses the fixed-length DP above, unchanged.
+
+**Code reference:** `src/probedesign/core.py` — `solutions[-1]`
 
 ---
 
@@ -477,7 +495,7 @@ For each selected position `i`:
 1. Extract the template region `seq[i : i + oligo_length]`, skipping `>` junction markers
 2. Compute the **reverse complement** — this is the probe sequence (what you order from the oligo vendor)
 
-**Code reference:** `src/probedesign/core.py:370-389`
+**Code reference:** `src/probedesign/core.py`
 
 ### Output Files
 
@@ -486,11 +504,14 @@ For each selected position `i`:
 | Column | Content | Example |
 |--------|---------|---------|
 | 1 | Index (1-based) | `1` |
-| 2 | GC% (integer) | `55` |
-| 3 | Tm (°C, 1 decimal) | `66.2` |
-| 4 | ΔG (kcal/mol, 1 decimal) | `-24.7` |
-| 5 | Probe sequence | `gtctcagaagctgcgattcg` |
-| 6 | Probe name | `KRT19_withUTRs_1` |
+| 2 | Start position (1-based, nucleotides) | `11` |
+| 3 | GC% (integer) | `55` |
+| 4 | Tm (°C, 1 decimal) | `66.2` |
+| 5 | ΔG (kcal/mol, 1 decimal) | `-24.7` |
+| 6 | Probe sequence | `gtctcagaagctgcgattcg` |
+| 7 | Probe name | `KRT19_withUTRs_1` |
+
+The reference files in `test_cases/` lack the Start column.
 
 **`_seq.txt`** — Visual alignment wrapped at 110 characters:
 
@@ -502,7 +523,9 @@ For each selected position `i`:
 | 4 | B mask (if genome masking used): `B` = masked |
 | Next | F mask (always present): `F` = inf badness, sequence char = valid |
 | Next | L mask (always present): `L` = low-complexity rejected, sequence char = valid |
-| Below | Probe complementary sequences and labels: `Prb# N,FE value,GC%` |
+| Below | Probe complementary sequences and labels: `Prb# N,Pos X,FE Y,GC Z` |
+
+With masking on, `_bowtie_pseudogene.txt` / `_bowtie_genome.txt` hold per-position hit counts. `--save-bowtie-raw` adds the raw alignments.
 
 **Code reference:** `src/probedesign/output.py`
 
@@ -514,17 +537,18 @@ For each selected position `i`:
 
 | Parameter | Default | CLI Flag(s) | Description | Code Location |
 |-----------|---------|-------------|-------------|---------------|
-| Number of probes | 48 | `-n`, `--probes` | Target number of probes to design | `cli.py`, `core.py:207` |
-| Oligo length | 20 bp | `-l`, `--oligo-length` | Length of each oligonucleotide | `cli.py`, `core.py:208` |
-| Spacer length | 2 bp | `-s`, `--spacer-length` | Minimum gap between probe starts (added to oligo length) | `cli.py`, `core.py:209` |
-| Target ΔG | -23.0 kcal/mol | `-g`, `--target-gibbs` | Optimal Gibbs free energy for probe binding | `cli.py`, `core.py:210` |
-| Allowable ΔG range | -26, -20 kcal/mol | `--allowable-gibbs "min,max"` | Probes outside this range get `inf` badness | `cli.py`, `core.py:211` |
+| Number of probes | 48 | `-n`, `--probes` | Target number of probes to design | `cli.py`, `core.py` |
+| Oligo length | 20 bp | `-l`, `--oligo-length` | Single length (e.g. `20`) or range for mixed-length mode (e.g. `18-22`, bounds 10–60) | `cli.py`, `core.py` |
+| Spacer length | 2 bp | `-s`, `--spacer-length` | Minimum gap between probe starts (added to oligo length) | `cli.py`, `core.py` |
+| Target ΔG | -23.0 kcal/mol | `-g`, `--target-gibbs` | Optimal Gibbs free energy for probe binding | `cli.py`, `core.py` |
+| Allowable ΔG range | -26, -20 kcal/mol | `--allowable-gibbs "min,max"` | Probes outside this range get `inf` badness | `cli.py`, `core.py` |
 | Output prefix | (input filename) | `-o`, `--output` | Base name for output files | `cli.py` |
 | Quiet mode | off | `-q`, `--quiet` | Suppress progress messages | `cli.py` |
 | Species | human | `--species` | Species for masking databases (human/mouse/elegans/drosophila/rat) | `cli.py` |
 | Pseudogene mask | off | `--pseudogene-mask` | Enable pseudogene alignment masking | `cli.py` |
 | Genome mask | off | `--genome-mask` | Enable repetitive genome region masking | `cli.py` |
-| Index directory | `bowtie_indexes/` | `--index-dir PATH` | Directory containing bowtie indexes | `cli.py`, `masking.py:19` |
+| Index directory | `<repo>/bowtie_indexes/` | `--index-dir PATH` | Directory containing bowtie indexes | `cli.py`, `masking.py` (`DEFAULT_INDEX_DIR`) |
+| Raw bowtie output | off | `--save-bowtie-raw` | Also write raw alignment files | `cli.py`, `output.py` |
 | Repeat mask file | (none) | `--repeatmask-file PATH` | FASTA with N's marking repeat regions | `cli.py` |
 | Auto repeat mask | off | `--repeatmask` | Run RepeatMasker automatically | `cli.py` |
 | Homopolymer threshold | 5 | `--hp-threshold` | Reject probes with homopolymer runs >= this length (3-10) | `cli.py`, `core.py` |
@@ -534,51 +558,79 @@ For each selected position `i`:
 
 | Constant | Value | Purpose | Code Location |
 |----------|-------|---------|---------------|
-| Salt concentration | 0.33 M (= 2× SSC) | Tm and ΔG calculation | `thermodynamics.py:40` |
-| Primer concentration | 50 µM (50 × 10⁻⁶ M) | Tm calculation | `thermodynamics.py:41` |
-| Temperature | 37°C (310.15 K) | ΔG calculation | `thermodynamics.py:79` |
-| Gas constant R | 1.9872 cal/(mol·K) | Tm calculation | `thermodynamics.py:42` |
-| ΔH_init | +1.9 kcal/mol | Nearest-neighbor initialization | `thermodynamics.py:36` |
-| ΔS_init | -3.9 cal/(mol·K) | Nearest-neighbor initialization | `thermodynamics.py:37` |
-| Pseudogene mer length | 16 bp | Bowtie alignment seed | `masking.py:264` |
-| Pseudogene mismatches | 0 | Bowtie `-v` parameter | `masking.py:264` (default in `run_bowtie`) |
-| Pseudogene hit threshold | 0 (any hit) | Minimum hits to trigger mask | `masking.py:267` |
-| Pseudogene min run length | 20 bp | Minimum masked run to keep | `masking.py:270` |
-| Pseudogene run tolerance | 2 bp | Gap allowance in run detection | `masking.py:270` |
-| Genome 12-mer max hits | 5,000 | Bowtie `-k` parameter | `masking.py:311` |
-| Genome 12-mer threshold | 4,000 | Hits above this → masked | `masking.py:316` |
-| Genome 14-mer max hits | 1,000 | Bowtie `-k` parameter | `masking.py:312` |
-| Genome 14-mer threshold | 500 | Hits above this → masked | `masking.py:317` |
-| Genome 16-mer max hits | 100 | Bowtie `-k` parameter | `masking.py:313` |
-| Genome 16-mer threshold | 20 | Hits above this → masked | `masking.py:318` |
-| Score rejection threshold | 1,000,000 | DP solutions above this are dropped | `core.py:189` |
+| Salt concentration | 0.33 M (= 2× SSC) | Tm and ΔG calculation | `thermodynamics.py` |
+| Primer concentration | 50 µM (50 × 10⁻⁶ M) | Tm calculation | `thermodynamics.py` |
+| Temperature | 37°C (310.15 K) | ΔG calculation | `thermodynamics.py` |
+| Gas constant R | 1.9872 cal/(mol·K) | Tm calculation | `thermodynamics.py` |
+| ΔH_init | +1.9 kcal/mol | Nearest-neighbor initialization | `thermodynamics.py` |
+| ΔS_init | -3.9 cal/(mol·K) | Nearest-neighbor initialization | `thermodynamics.py` |
+| Pseudogene mer length | 16 bp | Bowtie alignment seed | `masking.py` |
+| Pseudogene mismatches | 0 | Bowtie `-v` parameter | `masking.py` (default in `run_bowtie`) |
+| Pseudogene hit threshold | 0 (any hit) | Minimum hits to trigger mask | `masking.py` |
+| Pseudogene min run length | 20 bp | Minimum masked run to keep | `masking.py` |
+| Pseudogene run tolerance | 2 bp | Gap allowance in run detection | `masking.py` |
+| Genome 12-mer max hits | 5,000 | Bowtie `-k` parameter | `masking.py` |
+| Genome 12-mer threshold | 4,000 | Hits above this → masked | `masking.py` |
+| Genome 14-mer max hits | 1,000 | Bowtie `-k` parameter | `masking.py` |
+| Genome 14-mer threshold | 500 | Hits above this → masked | `masking.py` |
+| Genome 16-mer max hits | 100 | Bowtie `-k` parameter | `masking.py` |
+| Genome 16-mer threshold | 20 | Hits above this → masked | `masking.py` |
+| Score rejection threshold | 1,000,000 | DP solutions above this are dropped | `core.py` |
 | Output line width | 110 chars | Sequence alignment wrapping | `output.py` |
 | Invalid character regex | `[xXmMhHpPbBnN>]` | Characters that cause `inf` badness | `sequence.py` |
 
 ---
 
-## 10. HCR Probe Mode
+## 10. HCR Split-Initiator Probes
 
-Hybridization Chain Reaction (HCR) probes are longer oligonucleotides (typically 52 bp) with different thermodynamic targets. The pipeline supports HCR probes by adjusting the user-configurable parameters:
+HCR v3 probes have their own pipeline: `probedesign hcrdesign` → `design_hcr_probes()` in `hcr.py`. Don't use `design -l 52` for HCR. That treats the pair as one 52-nt duplex, but the two halves hybridise independently.
 
-**Example HCR invocation:**
-```bash
-probedesign design input.fasta \
-  --probes 20 \
-  --oligo-length 52 \
-  --target-gibbs -60 \
-  --allowable-gibbs -80,-40
+### Pair Geometry
+
+```
+target:  5' ─[ left 25 nt ]─ gap 2 nt ─[ right 25 nt ]─ 3'     (52-nt block, start p)
+           left = p..p+24,  gap = p+25..p+26,  right = p+27..p+51
+
+P1 (odd, binds right half):  5'─ RC(right) ─ spacer_b ─ initiator_b ─3'
+P2 (even, binds left half):  5'─ initiator_a ─ spacer_a ─ RC(left) ─3'
 ```
 
-| Parameter | Standard smFISH | HCR Mode |
-|-----------|----------------|----------|
-| Oligo length | 20 bp | 52 bp |
-| Target ΔG | -23.0 kcal/mol | -60.0 kcal/mol |
-| Allowable ΔG | -26 to -20 | -80 to -40 |
-| Number of probes | 48 | Typically 20 |
+Both initiator tails point inward toward the gap. The initiator and spacer sequences for the 13 amplifiers (B1–B5, B7, B9–B11, B13–B15, B17) are in `AMPLIFIER_TABLE`. Amplifiers B7 and up use a degenerate `WW` spacer, which `--resolve-spacer AA` (for example) replaces with explicit bases. In the output, binding regions are lowercase and spacer + initiator are uppercase (`attach_initiators()`).
 
-All other parameters (salt, primer conc, temperature, masking thresholds) remain the same. The DP spacing constraint adjusts automatically: `probe_spacer_len = 52 + 2 = 54 bp`.
+### Pair Badness (`calculate_pair_badness()`)
 
-**Test case:** `test_cases/EIF1_CDS_HCR/` — achieves ~78% match with MATLAB reference (partial match expected due to DP tie-breaking at equivalent-score positions).
+1. Compute 25-nt badness with the smFISH formula (Section 4) against the **strict** range (default target −31, range −35 to −27 kcal/mol per half). Apply the L mask to each half.
+2. A pair at `p` is invalid (`inf`) if either half overlaps the R mask, or the 2-nt gap contains a `>` junction.
+3. ΔG score = `badness(left) + badness(right)`. With `--asymmetric-gibbs`, one half may instead use the **lenient** range (`--lenient-gibbs-min`, default −42, up to the strict max). The better of left-strict and right-strict is kept, and the orientation is recorded.
+4. P/B mask: by default both halves must be free of pseudogene/genome hits. `--asymmetric-bowtie` requires only one clean half.
 
-**Code reference:** No special "HCR mode" in the code — it's simply a different set of CLI parameters. The same algorithm runs with different inputs.
+### Pair DP (`find_best_pairs()`)
+
+This is the same running-average DP as Section 7, applied to 52-nt blocks. Consecutive pair starts must be at least `52 + pair_spacing` apart (default spacing 2). Among the solutions it **maximises pair count first**, then minimises average badness.
+
+### HCR Parameters
+
+| Parameter | Default | CLI Flag |
+|-----------|---------|----------|
+| Pairs | 30 | `-p`, `--pairs` |
+| Amplifier | B1 | `-a`, `--amplifier` |
+| Target ΔG per half | −31.0 | `-g`, `--target-gibbs` |
+| Strict ΔG range | −35, −27 | `--allowable-gibbs` |
+| Asymmetric ΔG / lenient floor | off / −42.0 | `--asymmetric-gibbs`, `--lenient-gibbs-min` |
+| Asymmetric bowtie | off | `--asymmetric-bowtie` |
+| Pair spacing | 2 | `--pair-spacing` |
+| Masking, L-mask thresholds | as smFISH | `--species`, `--pseudogene-mask`, `--genome-mask`, `--repeatmask-file`, `--hp-threshold`, `--di-threshold` |
+| WW spacer resolution | none (IUPAC) | `--resolve-spacer` |
+
+Thermodynamic constants (salt, primer concentration, temperature) match smFISH.
+
+### Outputs (`hcr_output.py`)
+
+- `_HCR_oligos.txt`: `pair, half, start, GC%, Tm, Gibbs, strict, full_oligo, name`
+- `_HCR_seq.txt`: sequence map with mask lines and pair annotations
+- `_HCR_hits.txt`: per-half bowtie hit counts
+- `_HCR_bowtie_*_raw.txt`: only with `--save-bowtie-raw`
+
+**Tests:** `tests/test_hcr.py`. **Design background:** [hcr_designer_plan.md](hcr_designer_plan.md).
+
+`test_cases/EIF1_CDS_HCR/` predates `hcrdesign`. It holds an old single-52-mer design and is not a reference for this pipeline.

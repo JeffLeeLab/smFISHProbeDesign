@@ -6,7 +6,7 @@
 # (convert_to_parquet.py) then converts to Parquet + zstd.
 #
 # Run from the repo root:
-#   Rscript docs/HCR_plan/isoform_explorer/export_to_parquet.R
+#   Rscript docs/isoform_explorer/export_to_parquet.R
 #
 # After verifying the Parquet files are correct, clean up:
 #   rm /tmp/isoform_explorer_csv/*.csv
@@ -154,4 +154,4 @@ export_species(
 cat("\n=== Done. Intermediate CSVs in", OUT_DIR, "===\n")
 cat("Next step:\n")
 cat("  /Users/jefflee/miniforge3/envs/probedesign/bin/python",
-    "docs/HCR_plan/isoform_explorer/convert_to_parquet.py\n")
+    "docs/isoform_explorer/convert_to_parquet.py\n")

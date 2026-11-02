@@ -1,5 +1,7 @@
 # Mixed-Length Probe Design: Implementation Plan
 
+> **Status**: Implemented (`383cae7`, 2026-02-19). Historical design plan: where it disagrees with the code, the code wins. Current behaviour is in [probe_design_principles.md](probe_design_principles.md#7-dynamic-programming-optimization).
+
 ## 1. Critical Analysis: Does the Logic Make Sense?
 
 **The logic is sound.** The nearest-neighbor thermodynamic model (Sugimoto 1995) sums per-dinucleotide contributions, so Gibbs FE scales roughly linearly with probe length. For any given sequence composition:

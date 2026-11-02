@@ -1,6 +1,8 @@
 """Streamlit GUI for ProbeDesign — multipage entry point.
 
-Routes between smFISH and HCR probe design pages using st.navigation.
+Builds the top navigation bar and routes between the pages in pages/
+(smFISH, HCR, Isoform Explorer, TransQuant) using st.navigation.
+Each page owns its own sidebar.
 """
 
 import sys

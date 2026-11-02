@@ -1,197 +1,112 @@
 # Bowtie Installation and Setup
 
-This document describes how to install Bowtie and set up genome indexes for probe design masking (pseudogene mask, genome mask).
+This document describes how Bowtie and its indexes are set up for probe design masking (pseudogene mask, genome mask). **`setup_all.sh` does all of this automatically.** Read on only for manual setup or troubleshooting.
 
 ## Overview
 
-Bowtie is an ultrafast, memory-efficient short read aligner used by ProbeDesign to identify sequences that align to pseudogenes or multiple genomic locations. These alignments are used to mask problematic regions during probe design.
+Bowtie is a short-read aligner. ProbeDesign uses it to find sequences that align to pseudogenes or to many genomic locations, and masks those regions during probe design.
 
 **Important Notes**:
-- This project uses **Bowtie 1** (not Bowtie 2). Bowtie 1 is optimized for short reads (≤50bp) which matches our oligo lengths.
-- Install bowtie via **conda/mamba** (bioinformatics tool), NOT via homebrew (which has a different "bowtie" package)
-- You can verify you have the right bowtie by running: `bowtie --version` - it should show "bowtie-align-s version 1.x.x"
+- This project uses **Bowtie 1** (not Bowtie 2). Bowtie 1 is optimised for short reads (≤50 bp), which matches oligo lengths.
+- Install bowtie from **bioconda**, NOT homebrew. Homebrew's `bowtie` is an unrelated package.
+- Check you have the right one with `bowtie --version`. It should show "bowtie-align-s version 1.x.x".
+- Bowtie 1 v1.3+ reads Bowtie 2 `.bt2` index files directly, which is why the genome indexes can be downloaded pre-built rather than built locally.
 
 ## Installation
 
-### Option 1: Using Conda/Mamba (Recommended)
+`environment.yml` installs `bowtie=1.3.1` into the `probedesign` environment. Never install it into `base`. To add it manually to an existing environment:
 
-1. **Install Miniforge** (if not already installed):
-   ```bash
-   brew install --cask miniforge
-   conda init "$(basename "${SHELL}")"
-   # Restart your terminal
-   ```
+```bash
+mamba install -n probedesign -c conda-forge -c bioconda --channel-priority strict bowtie=1.3.1
+# or: conda install ...
+mamba activate probedesign
+bowtie --version
+```
 
-2. **Configure Bioconda channels**:
-   ```bash
-   conda config --add channels defaults
-   conda config --add channels bioconda
-   conda config --add channels conda-forge
-   conda config --set channel_priority strict
-   ```
-
-3. **Install Bowtie**:
-   ```bash
-   mamba install bowtie
-   # or: conda install bowtie
-   ```
-
-4. **Verify installation**:
-   ```bash
-   conda activate base
-   bowtie --version
-   # Should show: bowtie-align-s version 1.3.1 (or similar)
-   ```
-
-### Option 2: Direct Download
-
-Download pre-built binaries from:
-- https://sourceforge.net/projects/bowtie-bio/files/bowtie/
+The `defaults` channel is deliberately not used; see `environment.yml`.
 
 ## Index Setup
 
-ProbeDesign requires two types of bowtie indexes:
-1. **Pseudogene indexes** - For `--pseudogene-mask` (e.g., `humanPseudo`)
-2. **Genome indexes** - For `--genome-mask` (e.g., `GRCh38`)
+All indexes live in `<repo>/bowtie_indexes/`. That is the default for `--index-dir` and for the app's "Bowtie index directory" field.
 
-### Pseudogene Indexes
+### Pseudogene Indexes (`--pseudogene-mask`)
 
-Pseudogene FASTA files are included in `probedesign/pseudogeneDBs/`. Build indexes from them:
+These are built locally from the FASTA files in `probedesign/pseudogeneDBs/`. `setup_all.sh` builds human, mouse and drosophila. Manual equivalent:
 
 ```bash
-# Create indexes directory
-mkdir -p bowtie_indexes
-cd bowtie_indexes
-
-# Build human pseudogene index
-bowtie-build ../probedesign/pseudogeneDBs/human.fasta humanPseudo
-
-# Build mouse pseudogene index (if needed)
-bowtie-build ../probedesign/pseudogeneDBs/mouse.fasta mousePseudo
-
-# Build other species as needed
-bowtie-build ../probedesign/pseudogeneDBs/elegans.fasta celegansPseudo
+mkdir -p bowtie_indexes && cd bowtie_indexes
+bowtie-build ../probedesign/pseudogeneDBs/human.fasta      humanPseudo
+bowtie-build ../probedesign/pseudogeneDBs/mouse.fasta      mousePseudo
 bowtie-build ../probedesign/pseudogeneDBs/drosophila.fasta drosophilaPseudo
+bowtie-build ../probedesign/pseudogeneDBs/elegans.fasta    celegansPseudo   # optional, not built by setup
 ```
 
-The index names must match what the code expects:
-| Species | Index Name |
-|---------|------------|
-| human | `humanPseudo` |
-| mouse | `mousePseudo` |
-| elegans | `celegansPseudo` |
-| drosophila | `drosophilaPseudo` |
-| rat | `ratPseudo` |
+### Genome Indexes (`--genome-mask`)
 
-### Human Genome (GRCh38)
+`setup_all.sh` downloads pre-built Bowtie 2 indexes from `https://genome-idx.s3.amazonaws.com/bt/`, then moves and renames the files to the prefixes the code expects:
 
-1. **Create indexes directory**:
-   ```bash
-   mkdir -p bowtie_indexes
-   cd bowtie_indexes
-   ```
+| Species | Source zip | Index prefix | Download |
+|---------|------------|--------------|----------|
+| human | `GRCh38_noalt_as.zip` | `GCA_000001405.15_GRCh38_no_alt_analysis_set` | ~3.5 GB |
+| mouse | `mm10.zip` | `mm10` | ~3.1 GB |
+| drosophila | `BDGP6.zip` | `drosophila` | ~176 MB |
 
-2. **Download the GRCh38 index** (~2.7GB compressed, ~3GB uncompressed):
-   ```bash
-   curl -O ftp://ftp.ccb.jhu.edu/pub/data/bowtie_indexes/GRCh38_no_alt.zip
-   unzip GRCh38_no_alt.zip
-   rm GRCh38_no_alt.zip  # Optional: remove zip to save space
-   ```
+Use `./setup_all.sh --skip-genome` to skip this download.
 
-3. **Verify the index files**:
-   ```bash
-   ls bowtie_indexes/
-   # Should show (for human):
-   # GCA_000001405.15_GRCh38_no_alt_analysis_set.*.ebwt  (genome)
-   # humanPseudo.*.ebwt  (pseudogenes)
-   ```
+### Index Names
 
-### Complete Setup for Human
+The code looks up these prefixes (`masking.py`):
 
-After setup, your `bowtie_indexes/` directory should contain:
+| Species | Pseudogene | Genome | Built by setup |
+|---------|------------|--------|----------------|
+| human | `humanPseudo` | `GCA_000001405.15_GRCh38_no_alt_analysis_set` | yes |
+| mouse | `mousePseudo` | `mm10` | yes |
+| drosophila | `drosophilaPseudo` | `drosophila` | yes |
+| elegans | `celegansPseudo` | `celegans` | no |
+| rat | `ratPseudo` | `rat` | no |
+
+### Expected Layout
+
 ```
 bowtie_indexes/
-├── humanPseudo.1.ebwt          # Built from probedesign/pseudogeneDBs/human.fasta
-├── humanPseudo.2.ebwt
-├── humanPseudo.3.ebwt
-├── humanPseudo.4.ebwt
-├── humanPseudo.rev.1.ebwt
-├── humanPseudo.rev.2.ebwt
-├── GCA_000001405.15_GRCh38_no_alt_analysis_set.1.ebwt   # Downloaded
-├── GCA_000001405.15_GRCh38_no_alt_analysis_set.2.ebwt
-├── GCA_000001405.15_GRCh38_no_alt_analysis_set.3.ebwt
-├── GCA_000001405.15_GRCh38_no_alt_analysis_set.4.ebwt
-├── GCA_000001405.15_GRCh38_no_alt_analysis_set.rev.1.ebwt
-└── GCA_000001405.15_GRCh38_no_alt_analysis_set.rev.2.ebwt
+├── humanPseudo.{1,2,3,4,rev.1,rev.2}.ebwt                                   # built (Bowtie 1)
+├── GCA_000001405.15_GRCh38_no_alt_analysis_set.{1,2,3,4,rev.1,rev.2}.bt2    # downloaded (Bowtie 2 format)
+├── mousePseudo.*.ebwt, mm10.*.bt2
+└── drosophilaPseudo.*.ebwt, drosophila.*.bt2
 ```
 
-### Other Available Indexes
+## Finding the Bowtie Executable
 
-Pre-built indexes are available at:
-- https://bowtie-bio.sourceforge.net/index.shtml (click "Indexes")
-- ftp://ftp.ccb.jhu.edu/pub/data/bowtie_indexes/
+`find_bowtie()` in `masking.py` checks, in order:
+1. `bowtie` on `PATH` (the activated `probedesign` env)
+2. `/usr/bin/bowtie`
+3. `$BOWTIEHOME/bowtie`
+4. `~/bowtie/bowtie`
 
-Common indexes:
-- `GRCh38_no_alt.zip` - Human (GRCh38, recommended)
-- `hg19.ebwt.zip` - Human (hg19, legacy)
-- `mm10.ebwt.zip` - Mouse (mm10)
-- `mm9.ebwt.zip` - Mouse (mm9, legacy)
-
-## Environment Setup
-
-For the ProbeDesign scripts to find bowtie, ensure it's in your PATH:
-
-```bash
-# If using conda/mamba, activate the environment:
-conda activate base
-
-# Verify bowtie is accessible:
-which bowtie
-```
-
-The existing `DesignServer/bowtie_search.py` searches for bowtie in these locations:
-1. `/usr/bin/bowtie`
-2. `$BOWTIEHOME/bowtie` (set via environment variable)
-3. `$HOME/bowtie/bowtie`
-4. `$HOME/Dropbox (RajLab)/probeDesign/bowtie/bowtie`
-5. `$HOME/Downloads/bowtie/bowtie`
-
-You can set the `BOWTIEHOME` environment variable to point to your bowtie installation:
-```bash
-export BOWTIEHOME=/opt/homebrew/Caskroom/miniforge/base/bin
-```
+If none is found, masking prints `Warning: ... masking failed: Could not find bowtie executable` and the design **continues without that mask**. Always activate the environment first. If you call the env's Python directly, put `<env>/bin` on `PATH` or set `BOWTIEHOME=<env>/bin`.
 
 ## Testing the Installation
 
 ```bash
-# Test bowtie with a simple alignment
-echo -e ">test\nACGTACGTACGTACGT" | bowtie -f -v 0 -k 1 GCA_000001405.15_GRCh38_no_alt_analysis_set -
+mamba activate probedesign
+echo -e ">test\nACGTACGTACGTACGT" | bowtie -f -v 0 -k 1 bowtie_indexes/humanPseudo -
 ```
-
-## Disk Space Requirements
-
-| Index | Compressed | Uncompressed |
-|-------|------------|--------------|
-| Human GRCh38 | ~2.7 GB | ~3.0 GB |
-| Mouse mm10 | ~2.5 GB | ~2.7 GB |
 
 ## Troubleshooting
 
 ### "command not found: bowtie"
-- Ensure conda environment is activated: `conda activate base`
-- Check if bowtie is installed: `conda list | grep bowtie`
+- Activate the environment: `mamba activate probedesign`
+- Check it's installed: `mamba list -n probedesign bowtie`
 
-### "Could not find the bowtie executable"
-- Set `BOWTIEHOME` environment variable
-- Or install bowtie to one of the default search paths
+### "Could not find bowtie executable"
+- See [Finding the Bowtie Executable](#finding-the-bowtie-executable).
 
 ### Index not found
-- Ensure the index files are in the correct directory
-- The index name is the prefix before `.1.ebwt` (e.g., `GCA_000001405.15_GRCh38_no_alt_analysis_set`)
+- Check the files are in `bowtie_indexes/` (or the directory given to `--index-dir`).
+- The index name is the prefix before `.1.ebwt` / `.1.bt2`, and must match the table above.
 
 ## References
 
 - Bowtie homepage: http://bowtie-bio.sourceforge.net/
 - Bowtie manual: http://bowtie-bio.sourceforge.net/manual.shtml
-- Bowtie GitHub: https://github.com/BenLangmead/bowtie
 - Bioconda recipe: https://bioconda.github.io/recipes/bowtie/README.html

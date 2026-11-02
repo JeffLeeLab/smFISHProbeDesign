@@ -1,6 +1,6 @@
 # L-Mask Implementation Plan: Low-Complexity Sequence Filtering
 
-> **Status**: Implemented (rev 2)
+> **Status**: Implemented (rev 2, `ec32e72`). The shipped homopolymer default is **5**, not the 4 used throughout this plan; the dinucleotide default is 3 as planned. Where this plan disagrees with the code, the code wins.
 > **Date**: 2026-02-24
 
 ---

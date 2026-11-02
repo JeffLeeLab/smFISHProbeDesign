@@ -9,11 +9,14 @@ RepeatMasker screens DNA sequences for interspersed repeats and low complexity D
 ## Quick Start (Human/Mouse)
 
 ```bash
+# 0. Activate the environment
+mamba activate probedesign
+
 # 1. Install RepeatMasker
-mamba install -c bioconda -c conda-forge repeatmasker
+mamba install -n probedesign -c conda-forge -c bioconda repeatmasker
 
 # 2. Download the required database partition (~8.9GB compressed, ~56GB extracted)
-cd /opt/homebrew/Caskroom/miniforge/base/share/RepeatMasker/Libraries/famdb
+cd $CONDA_PREFIX/share/RepeatMasker/Libraries/famdb
 curl -O https://www.dfam.org/releases/current/families/FamDB/dfam39_full.7.h5.gz
 gunzip dfam39_full.7.h5.gz
 
@@ -21,12 +24,14 @@ gunzip dfam39_full.7.h5.gz
 probedesign design input.fa --repeatmask --probes 32
 ```
 
+All commands assume the `probedesign` environment is active (`mamba activate probedesign`). `$CONDA_PREFIX` then points at it, e.g. `~/miniforge3/envs/probedesign`. Install RepeatMasker into that environment, never into `base`.
+
 ## Installation Details
 
 ### Step 1: Install RepeatMasker via Conda
 
 ```bash
-mamba install -c bioconda -c conda-forge repeatmasker
+mamba install -n probedesign -c conda-forge -c bioconda repeatmasker
 ```
 
 This installs:
@@ -54,7 +59,7 @@ RepeatMasker requires the [Dfam](https://www.dfam.org/) database. The database i
 
 ```bash
 # Navigate to RepeatMasker's famdb directory
-cd /opt/homebrew/Caskroom/miniforge/base/share/RepeatMasker/Libraries/famdb
+cd $CONDA_PREFIX/share/RepeatMasker/Libraries/famdb
 
 # Download Mammalia partition (for human, mouse, rat, etc.)
 curl -O https://www.dfam.org/releases/current/families/FamDB/dfam39_full.7.h5.gz
@@ -72,11 +77,11 @@ gunzip dfam39_full.7.h5.gz
 
 ```bash
 # Check RepeatMasker version
-/opt/homebrew/Caskroom/miniforge/base/share/RepeatMasker/RepeatMasker -v
+$CONDA_PREFIX/share/RepeatMasker/RepeatMasker -v
 
 # Test with human species (requires partition 7)
-PATH="/opt/homebrew/Caskroom/miniforge/base/bin:$PATH" \
-  /opt/homebrew/Caskroom/miniforge/base/share/RepeatMasker/RepeatMasker \
+PATH="$CONDA_PREFIX/bin:$PATH" \
+  $CONDA_PREFIX/share/RepeatMasker/RepeatMasker \
   -species human -help 2>&1 | head -10
 ```
 
@@ -154,7 +159,7 @@ RepeatMasker needs Python with h5py. ProbeDesign handles this automatically by s
 
 ```bash
 # Run with conda Python in PATH
-PATH="/opt/homebrew/Caskroom/miniforge/base/bin:$PATH" RepeatMasker -species human input.fa
+PATH="$CONDA_PREFIX/bin:$PATH" RepeatMasker -species human input.fa
 ```
 
 ### "No space left on device" During Extraction
@@ -163,7 +168,7 @@ The extracted database is ~56GB. Ensure you have at least 65GB free space before
 
 ```bash
 # Check available space
-df -h /opt/homebrew/Caskroom/miniforge/base/
+df -h $CONDA_PREFIX/
 
 # If needed, clean up and retry
 rm -f dfam39_full.7.h5  # Remove partial extraction
@@ -174,11 +179,13 @@ gunzip dfam39_full.7.h5.gz
 
 ```bash
 # Install via conda
-mamba install -c bioconda -c conda-forge repeatmasker
+mamba install -n probedesign -c conda-forge -c bioconda repeatmasker
 
 # Verify installation
-/opt/homebrew/Caskroom/miniforge/base/share/RepeatMasker/RepeatMasker -v
+$CONDA_PREFIX/share/RepeatMasker/RepeatMasker -v
 ```
+
+`find_repeatmasker()` in `masking.py` first checks a hard-coded Homebrew-cask path (`/opt/homebrew/Caskroom/miniforge/base/share/RepeatMasker/RepeatMasker`), then `RepeatMasker` on `PATH`. With the environment active, the `PATH` lookup finds the conda install.
 
 ## Database Updates
 

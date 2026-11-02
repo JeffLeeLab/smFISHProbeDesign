@@ -1,5 +1,7 @@
 # HCR Probe Designer — Plan Review Chat Summary
 
+> **Status**: Historical review notes for [hcr_designer_plan.md](../hcr_designer_plan.md), implemented in `8917ef4`.
+
 This document summarises the key decisions, corrections, and clarifications made during
 the review of `docs/hcr_designer_plan.md` with Claude.
 

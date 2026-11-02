@@ -7,7 +7,7 @@ zstd-compressed Parquet files to data/isoform_explorer/{Sp}/.
 
 Run from the repo root with the probedesign env:
     /Users/jefflee/miniforge3/envs/probedesign/bin/python \
-        docs/HCR_plan/isoform_explorer/convert_to_parquet.py
+        docs/isoform_explorer/convert_to_parquet.py
 """
 
 import sys

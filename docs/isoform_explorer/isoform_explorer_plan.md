@@ -1,5 +1,7 @@
 # Isoform Explorer — Implementation Plan
 
+> **Status**: Implemented (`edeb803`, 2026-06-16). Historical design plan: where it disagrees with the code, the code wins. Data-build scripts are alongside it in `docs/isoform_explorer/`.
+
 ## Objective
 
 - Add a new page to the existing Streamlit app (same design language) for exploring the **constitutive sequence** of an RNA target — the portion present in *all* isoforms of a gene.
@@ -97,7 +99,7 @@ Sort both files by `gene_id` so pyarrow predicate-pushdown reads only the releva
 
 ### R export script (to be written)
 
-A standalone R script (e.g. `docs/HCR_plan/isoform_explorer/export_to_parquet.R`) that, per species:
+A standalone R script (e.g. `docs/isoform_explorer/export_to_parquet.R`) that, per species:
 0. **Verify TSL column is present (mammals).** Before flattening, confirm `exon_intervals` in the mammalian qs lists actually carries a per-row `transcript_support_level` column — the plot colouring depends on it. The qmd reads it via `min(exon_intervals$transcript_support_level)`, so it should be there, but check explicitly: e.g. `pcnc_constitutive_seq_list[[1]]$exon_intervals %>% names()` and `... %>% pull(transcript_support_level) %>% unique()` for Hsap and Mmus. If the column is missing or all-NA, the TSL-coloured plot cannot be built and the export step must first re-join TSL from the GTF/exon list. Dmel has no TSL and is expected to lack the column (uniform-colour fallback).
 1. `qread()` the appropriate `*_constitutive-sequence_list.qs` (TSL variant for mammals).
 2. Build the summary tibble (already exists as the CSV logic in `isoform_explorer_script.qmd`), derive the per-gene `tsl_cutoff` string from `min_transcript_support_level` using the adaptive rule above, and `arrow::write_parquet(compression = "zstd")`.

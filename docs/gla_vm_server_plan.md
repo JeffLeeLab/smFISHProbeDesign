@@ -1,5 +1,7 @@
 # Glasgow VM Server — Deployment Plan
 
+> **Status**: Deployed (`3d8a62c`, 2026-02-20). This is a record of the VM setup as it was done, so the live server may have drifted from it. The VM uses **micromamba** (`~/micromamba`), and the systemd and SELinux paths below depend on it, so it is kept deliberately. `setup_all.sh` still detects micromamba first. For local installs, use mamba/conda as in the README.
+
 Deploy the smFISHProbeDesign Streamlit app on an Oracle Linux 9.6 university VM.
 
 ---
@@ -109,7 +111,7 @@ micromamba config set channel_priority strict
 ```bash
 mkdir -p ~/Github
 cd ~/Github
-git clone https://github.com/JYLeeSci/smFISHProbeDesign.git
+git clone https://github.com/JeffLeeLab/smFISHProbeDesign.git
 cd smFISHProbeDesign
 ```
 

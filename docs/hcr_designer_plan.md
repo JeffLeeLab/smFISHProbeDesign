@@ -1,5 +1,7 @@
 # HCR Split-Initiator Probe Designer — Implementation Plan
 
+> **Status**: Implemented (`8917ef4`, 2026-02-28; initiator orientation fix `edd2446`). Historical design plan: where it disagrees with the code, the code wins (e.g. there is no `apply_hcr_masks()`). Current behaviour is in [probe_design_principles.md](probe_design_principles.md#10-hcr-split-initiator-probes).
+
 ## 1. Critical Assessment of Design Principles
 
 ### 1.1 Independent hybridisation: correct
