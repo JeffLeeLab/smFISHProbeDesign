@@ -291,7 +291,11 @@ def format_seq_content(
                     output_lines.append(mask[start:end])
 
         output_lines.append(probe_align_str[start:end])
-        output_lines.append(probe_labels_str[start:end])
+        labels_row = probe_labels_str[start:end]
+        if labels_row.startswith('#'):
+            # A label wrapped just before its '#' ("Prb|# 38,...") would read as a run header line
+            labels_row = ' ' + labels_row[1:]
+        output_lines.append(labels_row)
         output_lines.append("")
 
     body = "\n".join(output_lines) + "\n" if output_lines else ""

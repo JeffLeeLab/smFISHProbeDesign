@@ -2,7 +2,8 @@
 
 The header is a block of '#' lines (see probedesign/provenance.py) recording
 the parameters, input, masks and software behind a design. It sits above the
-sequence overlay, which must stay exactly as it was. These tests cover the
+sequence overlay, which must stay exactly as it was, except that no overlay
+line may start with '#' (a label wrapped at its '#' loses it). These tests cover the
 header text, the `command:` line (build_command), the per-mask records
 (applied / failed, index fingerprints) and display_index_dir.
 
@@ -345,6 +346,19 @@ def test_hcr_header_is_only_an_addition(tmp_path):
     # write_hcr_output_files() writes the same text
     write_hcr_output_files(result, str(tmp_path / "out"))
     assert (tmp_path / "out_HCR_seq.txt").read_text() == with_header
+
+
+def test_label_wrapped_at_its_hash_does_not_start_a_row_with_hash():
+    """A label that wraps just before its '#' ("Prb|# 2,...") leaves no '#' line after the header."""
+    result = _smfish(n_probes=32, **NO_L_MASK)
+    probe = result.probes[1]
+    width = probe.position + len("Prb")  # the second block starts on this label's '#'
+
+    text = format_seq_content(result, mask_seqs=result.mask_strings, line_width=width)
+    assert _header_lines(text)  # fails if any later line starts with '#'
+    blocks = _overlay_blocks(text)
+    assert blocks[0][-1].endswith("Prb")
+    assert blocks[1][-1].startswith(f"  {probe.index},Pos ")
 
 
 def test_overlay_description_matches_block_layout():

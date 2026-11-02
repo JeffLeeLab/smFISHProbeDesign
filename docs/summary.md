@@ -354,6 +354,7 @@ All changes are **additive** — no existing function signatures were broken, an
 - **Bowtie failures:** `run_bowtie()` raises `BowtieError` on a non-zero exit. Before, a missing or broken index returned zero hits and looked like a clean run.
 - **App names:** the app swaps temp-file names for upload names (or `pasted_sequence.fa`) via `run_design(input_name=..., repeatmask_name=...)`. The index directory prints as `default` unless it is a custom path.
 - **Mixed-length overlay:** `write_seq_file()` now writes `format_seq_content()`, which draws each probe with its own length. The app copy used the first probe's length for every probe.
+- **No `#` in the overlay:** a label that wraps just before its `#` ("Prb|# 38,...") would start a line with `#` and read as header. `format_seq_content()` replaces that one `#` with a space, so stripping `#` lines leaves the whole overlay.
 
 ---
 
