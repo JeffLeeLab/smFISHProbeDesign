@@ -17,11 +17,6 @@ bowtie_indexes/
 *.ebwtl
 *.bt2
 
-# Pseudogene / large DB files (don't commit large FASTA/text DBs)
-probedesign/pseudogeneDBs/
-probedesign/pseudogeneDBs/*.fasta
-probedesign/pseudogeneDBs/*.txt
-
 # Isoform Explorer source data (large R binary files and CSV intermediates)
 # The derived parquet files under data/isoform_explorer/ ARE committed
 data/isoform_explorer/**/*.qs

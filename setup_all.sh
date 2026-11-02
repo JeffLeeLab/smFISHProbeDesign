@@ -32,7 +32,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$SCRIPT_DIR"
 ENV_FILE="$REPO_ROOT/environment.yml"
 INDEX_DIR="$REPO_ROOT/bowtie_indexes"
-FASTA_DIR="$REPO_ROOT/probedesign/pseudogeneDBs"
+FASTA_DIR="$REPO_ROOT/data/pseudogeneDBs"
 
 # Colours
 GREEN='\033[0;32m'
