@@ -19,6 +19,7 @@ from .sequence import (
     clean_sequence,
 )
 from .fasta import read_fasta, sequences_to_single_string, get_basename
+from .provenance import new_run_info, bowtie_mask_record
 
 
 @dataclass
@@ -47,6 +48,10 @@ class ProbeDesignResult:
     bowtie_genome_hits: Optional[dict] = None
     bowtie_pseudogene_raw: Optional[str] = None
     bowtie_genome_raw: Optional[str] = None
+    # Parallel to mask_strings: the mask letter of each line (R, P, B, F, L)
+    mask_kinds: List[str] = field(default_factory=list)
+    # Parameters, input and mask provenance; see provenance.py
+    run_info: dict = field(default_factory=dict)
 
 
 def calculate_badness(
@@ -439,6 +444,26 @@ def design_probes(
     if output_name is None:
         output_name = get_basename(input_file)
 
+    run_info = new_run_info(
+        "smFISH", input_file, len(seqs), seq,
+        params={
+            "n_probes": n_probes,
+            "oligo_length": oligo_length,
+            "mixed_lengths": tuple(mixed_lengths) if use_mixed else None,
+            "spacer_length": spacer_length,
+            "target_gibbs": target_gibbs,
+            "allowable_gibbs": tuple(allowable_gibbs),
+            "species": species,
+            "pseudogene_mask": pseudogene_mask,
+            "genome_mask": genome_mask,
+            "hp_threshold": hp_threshold,
+            "di_threshold": di_threshold,
+            "save_bowtie_raw": save_bowtie_raw,
+        },
+        repeatmask_file=repeatmask_file,
+        index_dir=index_dir,
+    )
+
     # Calculate badness scores (thermodynamic filtering)
     if use_mixed:
         badness_2d = calculate_badness_mixed(
@@ -456,6 +481,7 @@ def design_probes(
     # Apply masking if requested
     full_mask = [0] * len(seq)
     mask_strings = []
+    mask_kinds = []
 
     # Handle repeat masking from separate file or from N's in input
     if repeatmask_file:
@@ -468,6 +494,7 @@ def design_probes(
         rmask = [1 if rm_seq[i].lower() == 'n' else 0 for i in range(len(rm_seq))]
         rstr = "".join("R" if rmask[i] else seq[i] for i in range(len(seq)))
         mask_strings.append(rstr)
+        mask_kinds.append("R")
         for i, v in enumerate(rmask):
             full_mask[i] += v
         print(f"Repeat masking (from file): {sum(rmask)} positions masked")
@@ -476,6 +503,7 @@ def design_probes(
         rmask = [1 if seq[i].lower() == 'n' else 0 for i in range(len(seq))]
         rstr = "".join("R" if rmask[i] else seq[i] for i in range(len(seq)))
         mask_strings.append(rstr)
+        mask_kinds.append("R")
         for i, v in enumerate(rmask):
             full_mask[i] += v
         print(f"Repeat masking (from N's): {sum(rmask)} positions masked")
@@ -504,8 +532,11 @@ def design_probes(
                 # Create visualization string
                 pstr = "".join("P" if pmask[i] else seq[i] for i in range(len(seq)))
                 mask_strings.append(pstr)
+                mask_kinds.append("P")
+                run_info["masks"].append(bowtie_mask_record("P", species, idx_dir))
                 print(f"Pseudogene masking: {sum(pmask)} positions masked")
             except Exception as e:
+                run_info["masks"].append(bowtie_mask_record("P", species, idx_dir, error=e))
                 print(f"Warning: Pseudogene masking failed: {e}")
 
         if genome_mask:
@@ -519,8 +550,11 @@ def design_probes(
                 # Create visualization string
                 gstr = "".join("B" if gmask[i] else seq[i] for i in range(len(seq)))
                 mask_strings.append(gstr)
+                mask_kinds.append("B")
+                run_info["masks"].append(bowtie_mask_record("B", species, idx_dir))
                 print(f"Genome masking: {sum(gmask)} positions masked")
             except Exception as e:
+                run_info["masks"].append(bowtie_mask_record("B", species, idx_dir, error=e))
                 print(f"Warning: Genome masking failed: {e}")
 
     # Create F mask and apply masking to badness
@@ -540,6 +574,7 @@ def design_probes(
                 fstr_parts.append('F')
         fstr = "".join(fstr_parts)
         mask_strings.append(fstr)
+        mask_kinds.append("F")
 
         # --- L-mask: low-complexity filtering (always active, per-length) ---
         from .masking import has_homopolymer, has_dinucleotide_repeat
@@ -572,6 +607,7 @@ def design_probes(
                 lstr_parts.append(seq[i])
         lstr = "".join(lstr_parts)
         mask_strings.append(lstr)
+        mask_kinds.append("L")
         if l_masked_count > 0:
             print(f"Low-complexity masking: {l_masked_count} (position,length) pairs masked "
                   f"(homopolymer>={hp_threshold}, dinucleotide>={di_threshold})")
@@ -599,6 +635,7 @@ def design_probes(
                 fstr_parts.append('F')
         fstr = "".join(fstr_parts)
         mask_strings.append(fstr)
+        mask_kinds.append("F")
 
         # --- L-mask: low-complexity filtering (always active, probe-level) ---
         from .masking import has_homopolymer, has_dinucleotide_repeat
@@ -619,6 +656,7 @@ def design_probes(
                 lstr_parts.append(seq[i])
         lstr = "".join(lstr_parts)
         mask_strings.append(lstr)
+        mask_kinds.append("L")
         if l_masked_count > 0:
             print(f"Low-complexity masking: {l_masked_count} probe positions masked "
                   f"(homopolymer>={hp_threshold}, dinucleotide>={di_threshold})")
@@ -644,6 +682,8 @@ def design_probes(
             template_name=output_name,
             mask=full_mask,
             mask_strings=mask_strings,
+            mask_kinds=mask_kinds,
+            run_info=run_info,
             bowtie_pseudogene_hits=pseudo_hits,
             bowtie_genome_hits=genome_hits_dict,
             bowtie_pseudogene_raw=pseudo_raw_text,
@@ -711,6 +751,8 @@ def design_probes(
         template_name=output_name,
         mask=full_mask,
         mask_strings=mask_strings,
+        mask_kinds=mask_kinds,
+        run_info=run_info,
         bowtie_pseudogene_hits=pseudo_hits,
         bowtie_genome_hits=genome_hits_dict,
         bowtie_pseudogene_raw=pseudo_raw_text,

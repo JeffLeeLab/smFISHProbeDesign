@@ -3,6 +3,7 @@
 import os
 from typing import Dict, List, Optional
 from .core import Probe, ProbeDesignResult
+from .provenance import format_header
 from .sequence import complement
 
 
@@ -54,8 +55,9 @@ def write_seq_file(
     """Write sequence alignment visualization file.
 
     Creates a multi-line visualization showing:
+    - A '#' header with the run's parameters and masks (provenance.format_header)
     - Original sequence (with '>' at exon junctions where present)
-    - Masked regions (if any) - each mask shows sequence with mask chars (P, B, R, F)
+    - Masked regions (if any) - each mask shows sequence with mask chars (R, P, B, F, L)
     - Probe alignments with complementary sequences
     - Probe labels
 
@@ -69,69 +71,8 @@ def write_seq_file(
         mask_seqs: List of mask strings (same length as sequence, with mask chars at masked positions)
         line_width: Characters per line for wrapping
     """
-    seq = result.input_sequence
-
-    # Build probe alignment string
-    probe_align = [' '] * len(seq)
-    probe_labels = [' '] * len(seq)
-
-    for probe in result.probes:
-        pos = probe.position
-        oligo_len = len(probe.sequence)
-        # Get the actual sequence at this position (skip '>' characters)
-        actual_seq = ''
-        seq_pos = pos
-        chars_collected = 0
-        while chars_collected < oligo_len and seq_pos < len(seq):
-            if seq[seq_pos] != '>':
-                actual_seq += seq[seq_pos]
-                chars_collected += 1
-            seq_pos += 1
-
-        comp_seq = complement(actual_seq)
-
-        # Place complementary sequence (accounting for '>' in original)
-        comp_idx = 0
-        for i in range(oligo_len + 10):  # Allow for some '>' chars
-            if pos + i >= len(probe_align):
-                break
-            if seq[pos + i] == '>':
-                continue  # Skip '>' positions
-            if comp_idx < len(comp_seq):
-                probe_align[pos + i] = comp_seq[comp_idx]
-                comp_idx += 1
-
-        # Place probe label
-        start_pos = _nucleotide_position(seq, probe.position)
-        label = f"Prb# {probe.index},Pos {start_pos},FE {probe.gibbs_fe},GC {probe.gc_percent}"
-        for i, c in enumerate(label):
-            if pos + i < len(probe_labels):
-                probe_labels[pos + i] = c
-
-    probe_align_str = ''.join(probe_align)
-    probe_labels_str = ''.join(probe_labels)
-
-    # Build output lines
     with open(filepath, 'w') as f:
-        for start in range(0, len(seq), line_width):
-            end = min(start + line_width, len(seq))
-
-            # Original sequence (no prefix - '>' is already in sequence if present)
-            f.write(f"{seq[start:end]}\n")
-
-            # Mask sequences if provided
-            if mask_seqs:
-                for mask in mask_seqs:
-                    if mask:
-                        f.write(f"{mask[start:end]}\n")
-
-            # Probe alignment
-            f.write(f"{probe_align_str[start:end]}\n")
-
-            # Probe labels
-            f.write(f"{probe_labels_str[start:end]}\n")
-
-            f.write("\n")
+        f.write(format_seq_content(result, mask_seqs, line_width))
 
 
 def format_probes_table(result: ProbeDesignResult) -> str:
@@ -287,7 +228,8 @@ def format_seq_content(
 ) -> str:
     """Return sequence alignment visualization as a string (for download buttons).
 
-    Produces identical content to write_seq_file() without file I/O.
+    This is the content write_seq_file() writes: the '#' run header, then the
+    sequence overlay.
 
     Args:
         result: ProbeDesignResult from design_probes()
@@ -298,7 +240,6 @@ def format_seq_content(
         Formatted visualization string
     """
     seq = result.input_sequence
-    oligo_len = len(result.probes[0].sequence) if result.probes else 20
 
     # Build probe alignment string
     probe_align = [' '] * len(seq)
@@ -306,6 +247,7 @@ def format_seq_content(
 
     for probe in result.probes:
         pos = probe.position
+        oligo_len = len(probe.sequence)  # per probe: mixed-length designs vary
         actual_seq = ''
         seq_pos = pos
         chars_collected = 0
@@ -352,7 +294,8 @@ def format_seq_content(
         output_lines.append(probe_labels_str[start:end])
         output_lines.append("")
 
-    return "\n".join(output_lines) + "\n" if output_lines else ""
+    body = "\n".join(output_lines) + "\n" if output_lines else ""
+    return format_header(result) + body
 
 
 def format_hits_content(result: ProbeDesignResult) -> Dict[str, str]:

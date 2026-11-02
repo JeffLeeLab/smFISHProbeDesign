@@ -19,6 +19,7 @@ from .thermodynamics import gibbs_rna_dna, tm_rna_dna
 from .sequence import reverse_complement, percent_gc, has_invalid_chars, clean_sequence
 from .fasta import read_fasta, sequences_to_single_string, get_basename
 from .masking import has_homopolymer, has_dinucleotide_repeat
+from .provenance import new_run_info, bowtie_mask_record
 
 
 # ── HCR amplifier initiator table ───────────────────────────────────────────
@@ -91,6 +92,10 @@ class HCRDesignResult:
     bowtie_genome_hits: Optional[dict] = None
     bowtie_pseudogene_raw: Optional[str] = None
     bowtie_genome_raw: Optional[str] = None
+    # Parallel to mask_strings: the mask letter of each line (R, P, B)
+    mask_kinds: List[str] = field(default_factory=list)
+    # Parameters, input and mask provenance; see provenance.py
+    run_info: dict = field(default_factory=dict)
 
 
 # ── Core functions ───────────────────────────────────────────────────────────
@@ -409,12 +414,36 @@ def design_hcr_probes(
     if output_name is None:
         output_name = get_basename(input_file)
 
+    run_info = new_run_info(
+        "HCR", input_file, len(seqs), seq,
+        params={
+            "n_pairs": n_pairs,
+            "amplifier": amplifier,
+            "target_gibbs": target_gibbs,
+            "strict_range": tuple(strict_range),
+            "asymmetric_gibbs": asymmetric_gibbs,
+            "lenient_gibbs_min": lenient_gibbs_min,
+            "asymmetric_bowtie": asymmetric_bowtie,
+            "pair_spacing": pair_spacing,
+            "species": species,
+            "pseudogene_mask": pseudogene_mask,
+            "genome_mask": genome_mask,
+            "hp_threshold": hp_threshold,
+            "di_threshold": di_threshold,
+            "resolve_spacer": resolve_spacer,
+            "save_bowtie_raw": save_bowtie_raw,
+        },
+        repeatmask_file=repeatmask_file,
+        index_dir=index_dir,
+    )
+
     # Check minimum sequence length
     if len(seq) < PAIR_BLOCK_LENGTH:
         print(f"Sequence too short for HCR probe design (minimum {PAIR_BLOCK_LENGTH} nt, got {len(seq)} nt)")
         return HCRDesignResult(
             pairs=[], score=float('inf'), input_sequence=seq,
             template_name=output_name, amplifier=amplifier,
+            run_info=run_info,
         )
 
     # Determine asymmetric mode string
@@ -429,6 +458,7 @@ def design_hcr_probes(
 
     # Build masks
     mask_strings = []
+    mask_kinds = []
     nuc_mask_r = None  # repeat mask
     nuc_mask_pb = None  # pseudogene + genome mask
     has_n_masking = 'n' in seq
@@ -446,11 +476,13 @@ def design_hcr_probes(
         nuc_mask_r = [1 if rm_seq[i].lower() == 'n' else 0 for i in range(len(rm_seq))]
         rstr = "".join("R" if nuc_mask_r[i] else seq[i] for i in range(len(seq)))
         mask_strings.append(rstr)
+        mask_kinds.append("R")
         print(f"Repeat masking (from file): {sum(nuc_mask_r)} positions masked")
     elif has_n_masking:
         nuc_mask_r = [1 if seq[i] == 'n' else 0 for i in range(len(seq))]
         rstr = "".join("R" if nuc_mask_r[i] else seq[i] for i in range(len(seq)))
         mask_strings.append(rstr)
+        mask_kinds.append("R")
         print(f"Repeat masking (from N's): {sum(nuc_mask_r)} positions masked")
 
     # P/B masks from bowtie
@@ -472,8 +504,11 @@ def design_hcr_probes(
                     nuc_mask_pb[i] |= v
                 pstr = "".join("P" if pmask[i] else seq[i] for i in range(len(seq)))
                 mask_strings.append(pstr)
+                mask_kinds.append("P")
+                run_info["masks"].append(bowtie_mask_record("P", species, idx_dir))
                 print(f"Pseudogene masking: {sum(pmask)} positions masked")
             except Exception as e:
+                run_info["masks"].append(bowtie_mask_record("P", species, idx_dir, error=e))
                 print(f"Warning: Pseudogene masking failed: {e}")
 
         if genome_mask:
@@ -486,8 +521,11 @@ def design_hcr_probes(
                     nuc_mask_pb[i] |= v
                 gstr = "".join("B" if gmask[i] else seq[i] for i in range(len(seq)))
                 mask_strings.append(gstr)
+                mask_kinds.append("B")
+                run_info["masks"].append(bowtie_mask_record("B", species, idx_dir))
                 print(f"Genome masking: {sum(gmask)} positions masked")
             except Exception as e:
+                run_info["masks"].append(bowtie_mask_record("B", species, idx_dir, error=e))
                 print(f"Warning: Genome masking failed: {e}")
 
     # Calculate pair badness
@@ -515,6 +553,7 @@ def design_hcr_probes(
             pairs=[], score=float('inf'), input_sequence=seq,
             template_name=output_name, amplifier=amplifier,
             mask_strings=mask_strings, asymmetric_mode=asym_mode,
+            mask_kinds=mask_kinds, run_info=run_info,
             bowtie_pseudogene_hits=pseudo_hits,
             bowtie_genome_hits=genome_hits_dict,
             bowtie_pseudogene_raw=pseudo_raw_text,
@@ -530,6 +569,7 @@ def design_hcr_probes(
             pairs=[], score=float('inf'), input_sequence=seq,
             template_name=output_name, amplifier=amplifier,
             mask_strings=mask_strings, asymmetric_mode=asym_mode,
+            mask_kinds=mask_kinds, run_info=run_info,
         )
 
     if len(positions) < n_pairs:
@@ -593,6 +633,8 @@ def design_hcr_probes(
         template_name=output_name,
         amplifier=amplifier,
         mask_strings=mask_strings,
+        mask_kinds=mask_kinds,
+        run_info=run_info,
         asymmetric_mode=asym_mode,
         bowtie_pseudogene_hits=pseudo_hits,
         bowtie_genome_hits=genome_hits_dict,

@@ -6,6 +6,7 @@ Generates _HCR_oligos.txt, _HCR_seq.txt, and _HCR_hits.txt files.
 import os
 from typing import Dict, List, Optional
 from .hcr import HCRDesignResult, HCRProbePair, HALF_LENGTH, GAP_LENGTH, PAIR_BLOCK_LENGTH
+from .provenance import format_header
 from .sequence import complement
 
 
@@ -63,7 +64,8 @@ def format_hcr_seq(
 ) -> str:
     """Format sequence alignment visualization for _HCR_seq.txt.
 
-    Shows the target sequence with mask lines and pair annotations.
+    Starts with the '#' run header (provenance.format_header), then shows the
+    target sequence with mask lines and pair annotations.
 
     Args:
         result: HCRDesignResult from design_hcr_probes()
@@ -105,6 +107,11 @@ def format_hcr_seq(
     annot_str = ''.join(pair_annot)
     label_str = ''.join(pair_labels)
 
+    # Mask letters come from design_hcr_probes(); guess them for results built by hand
+    mask_chars = result.mask_kinds or [
+        next((c for c in m if c in "RPBFL"), None) for m in result.mask_strings
+    ]
+
     # Build output
     output = []
     for start in range(0, n, line_width):
@@ -120,15 +127,9 @@ def format_hcr_seq(
         output.append(f"{'SEQUENCE':>8s}:  {seq[start:end]}")
 
         # Mask lines
-        for mask_str in result.mask_strings:
+        for mask_char, mask_str in zip(mask_chars, result.mask_strings):
             if mask_str:
-                mask_char = None
-                for c in mask_str:
-                    if c in ('R', 'P', 'B', 'F', 'L'):
-                        mask_char = c
-                        break
-                label = {"R": "R mask", "P": "P mask", "B": "B mask",
-                         "F": "F mask", "L": "L mask"}.get(mask_char, "mask")
+                label = f"{mask_char} mask" if mask_char else "mask"
                 output.append(f"{label:>8s}:  {mask_str[start:end]}")
 
         # Pair annotations
@@ -136,7 +137,7 @@ def format_hcr_seq(
         output.append(f"{'':>8s}   {label_str[start:end]}")
         output.append("")
 
-    return "\n".join(output) + "\n"
+    return format_header(result) + "\n".join(output) + "\n"
 
 
 def format_hcr_hits(result: HCRDesignResult) -> str:

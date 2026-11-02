@@ -242,6 +242,10 @@ def design(
         hp_threshold=hp_threshold,
         di_threshold=di_threshold,
     )
+    if repeatmask:
+        # design_probes() saw RepeatMasker's output as a plain repeat-mask file
+        result.run_info["repeatmask_mode"] = "auto"
+        result.run_info["repeatmask_name"] = None
 
     if not result.probes:
         click.echo("ERROR: Could not find any valid probes.", err=True)
