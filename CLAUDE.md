@@ -1,3 +1,7 @@
+## Subagent usage instruction
+
+Use haiku subagents for general codebase exploration and simple documentation updates. Use sonnet subagents for web research or ingesting PDF articles or papers. 
+
 ## Project Overview
 
 ProbeDesign designs oligonucleotide probes for single-molecule RNA FISH (smFISH) and HCR v3 split-initiator FISH. The product is the **Python package** (`src/probedesign/`) and the **Streamlit web app** (`streamlit_app/`). The MATLAB code is legacy — don't modify it or chase MATLAB parity.
