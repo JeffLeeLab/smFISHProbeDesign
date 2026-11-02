@@ -341,9 +341,11 @@ fi
 # ── Test C: CDKN1A_32 (no bowtie indices needed) ─────────────────────────────
 echo -n "  [C] probe design — CDKN1A_32 (32 probes, 100% match expected) … "
 TMPDIR_C=$(mktemp -d)
+# Reference predates the low-complexity (L) filter; thresholds of 10 disable it
 run_in_env probedesign design test_cases/CDKN1A_32/CDKN1A.fa \
     --probes 32 \
     --repeatmask-file test_cases/CDKN1A_32/CDKN1A_repeatmasked.fa \
+    --hp-threshold 10 --di-threshold 10 \
     -o "$TMPDIR_C/test" --quiet 2>/dev/null
 
 ACTUAL_COUNT=$(wc -l < "$TMPDIR_C/test_oligos.txt" | tr -d ' ')
