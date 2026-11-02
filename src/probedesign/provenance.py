@@ -206,14 +206,14 @@ def build_command(result) -> str:
         add_flag("--asymmetric-gibbs", p["asymmetric_gibbs"])
         add("--lenient-gibbs-min", p["lenient_gibbs_min"], -42.0)
         add_flag("--asymmetric-bowtie", p["asymmetric_bowtie"])
-        add("--pair-spacing", p["pair_spacing"], 2)
+        add("--pair-spacing", p["pair_spacing"], 3)
     else:
         add("--probes", p["n_probes"], 48)
         if p["mixed_lengths"]:
             parts.append(_option("--oligo-length", f"{p['mixed_lengths'][0]}-{p['mixed_lengths'][1]}"))
         else:
             add("--oligo-length", p["oligo_length"], 20)
-        add("--spacer-length", p["spacer_length"], 2)
+        add("--spacer-length", p["spacer_length"], 3)
         add("--target-gibbs", p["target_gibbs"], -23.0)
         if tuple(p["allowable_gibbs"]) != (-26.0, -20.0):
             parts.append(_option("--allowable-gibbs", _range(p["allowable_gibbs"])))

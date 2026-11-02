@@ -23,6 +23,7 @@ if str(_app_dir) not in sys.path:
     sys.path.insert(0, str(_app_dir))
 
 from utils import XLSX_MIME
+from probedesign import __version__
 from probedesign.idt import (
     DEFAULT_MIN_OLIGOS,
     N_COLUMNS,
@@ -46,6 +47,7 @@ _SET_COLOURS = [
 
 with st.sidebar:
     st.header("IDT Plate")
+    st.caption(f"ProbeDesign v{__version__}")
     min_oligos = st.number_input(
         "Minimum oligos per plate",
         min_value=0,

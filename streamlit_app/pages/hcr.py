@@ -42,6 +42,7 @@ from probedesign.hcr_output import (
     format_hcr_hits,
 )
 from probedesign.hcr import VALID_AMPLIFIERS
+from probedesign import __version__
 from probedesign.provenance import PASTED_INPUT_NAME
 
 
@@ -61,6 +62,7 @@ for key, default in {
 
 with st.sidebar:
     st.header("HCR Probe Design")
+    st.caption(f"ProbeDesign v{__version__}")
 
     mode = st.radio(
         "Mode",
@@ -93,7 +95,7 @@ with st.sidebar:
 
     pair_spacing = st.number_input(
         "Pair spacing (nt)",
-        min_value=0, value=2, step=1,
+        min_value=0, value=3, step=1,
         key="hcr_pair_spacing",
         help="Minimum gap between consecutive 52-nt pair blocks",
     )

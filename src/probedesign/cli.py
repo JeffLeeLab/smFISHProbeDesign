@@ -3,12 +3,13 @@
 import click
 from pathlib import Path
 
+from . import __version__
 from .core import design_probes
 from .output import write_output_files, format_probes_table
 
 
 @click.group()
-@click.version_option()
+@click.version_option(__version__)  # the source version, even before pip install -e . reruns
 def main():
     """ProbeDesign - Design oligonucleotide probes for FISH experiments."""
     pass
@@ -30,9 +31,9 @@ def main():
 )
 @click.option(
     '-s', '--spacer-length',
-    default=2,
+    default=3,
     type=int,
-    help='Minimum gap between probes (default: 2)'
+    help='Minimum gap between probes (default: 3)'
 )
 @click.option(
     '-g', '--target-gibbs',
@@ -318,9 +319,9 @@ def design(
 )
 @click.option(
     '--pair-spacing',
-    default=2,
+    default=3,
     type=int,
-    help='Minimum gap between consecutive 52-nt pair blocks (default: 2)'
+    help='Minimum gap between consecutive 52-nt pair blocks (default: 3)'
 )
 @click.option(
     '-s', '--species',

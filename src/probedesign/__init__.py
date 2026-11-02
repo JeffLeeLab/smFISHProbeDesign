@@ -1,6 +1,6 @@
 """ProbeDesign - Design oligonucleotide probes for FISH experiments."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .core import design_probes
 from .thermodynamics import gibbs_rna_dna, tm_rna_dna

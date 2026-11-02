@@ -436,7 +436,7 @@ def test_hcr_header_fields_match_design():
     result = _hcr(
         n_pairs=8, amplifier="B3", target_gibbs=-30.0, strict_range=(-34.0, -28.0),
         asymmetric_gibbs=True, lenient_gibbs_min=-40.0, asymmetric_bowtie=True,
-        pair_spacing=3, resolve_spacer="AA", hp_threshold=6, di_threshold=4,
+        pair_spacing=4, resolve_spacer="AA", hp_threshold=6, di_threshold=4,
     )
     fields = _fields(_header_lines(format_header(result)))
     seq = result.input_sequence
@@ -450,7 +450,7 @@ def test_hcr_header_fields_match_design():
     assert fields["strict dG range"] == "-34.0 to -28.0 kcal/mol"
     assert fields["asymmetric dG"] == "on, lenient half down to -40.0 kcal/mol"
     assert fields["asymmetric mask"] == "on (one half may overlap P/B masks)"
-    assert fields["pair spacing"] == "3"
+    assert fields["pair spacing"] == "4"
     assert fields["species"] == "human"
     assert fields["low complexity"] == "homopolymer >= 6, dinucleotide repeat >= 4"
     assert fields["resolve spacer"] == "AA"
@@ -583,11 +583,12 @@ def _run_command(command, workdir, out_dir, monkeypatch):
 
 
 SMFISH_ROUND_TRIPS = {
-    "mixed-spacer": dict(n_probes=30, mixed_lengths=(18, 22), spacer_length=3, **NO_L_MASK),
-    "mixed-spacer-named": dict(n_probes=30, mixed_lengths=(18, 22), spacer_length=3,
+    "defaults": dict(n_probes=30, **NO_L_MASK),
+    "mixed-spacer-named": dict(n_probes=30, mixed_lengths=(17, 23), spacer_length=2,
                                output_name="myprobes", **NO_L_MASK),
     "fixed-gibbs": dict(n_probes=20, oligo_length=22, target_gibbs=-24.5,
                         allowable_gibbs=(-27.5, -19.5), hp_threshold=7, di_threshold=4),
+    "mixed-spacer": dict(n_probes=30, mixed_lengths=(18, 22), spacer_length=3, **NO_L_MASK),
 }
 
 

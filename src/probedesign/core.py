@@ -381,7 +381,7 @@ def design_probes(
     input_file: str,
     n_probes: int = 48,
     oligo_length: int = 20,
-    spacer_length: int = 2,
+    spacer_length: int = 3,
     target_gibbs: float = -23.0,
     allowable_gibbs: Tuple[float, float] = (-26.0, -20.0),
     output_name: Optional[str] = None,
@@ -405,7 +405,7 @@ def design_probes(
         n_probes: Number of probes to design (default 48)
         oligo_length: Length of each oligonucleotide (default 20, used when
             mixed_lengths is None)
-        spacer_length: Minimum gap between probes (default 2)
+        spacer_length: Minimum gap between probes (default 3)
         target_gibbs: Target Gibbs free energy in kcal/mol (default -23)
         allowable_gibbs: (min, max) Gibbs FE range (default (-26, -20))
         output_name: Base name for output files (default: derived from input)
@@ -425,6 +425,8 @@ def design_probes(
     use_mixed = mixed_lengths is not None
     if use_mixed:
         min_len, max_len = mixed_lengths
+        if min_len > max_len:
+            raise ValueError(f"mixed_lengths min ({min_len}) is greater than max ({max_len})")
     else:
         min_len = max_len = oligo_length
 

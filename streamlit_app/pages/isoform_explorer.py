@@ -22,10 +22,12 @@ from isoform_data import (
     plot_isoforms,
     safe_tsl_label,
 )
+from probedesign import __version__
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
 st.sidebar.header("Isoform Explorer")
+st.sidebar.caption(f"ProbeDesign v{__version__}")
 
 species_key = st.sidebar.selectbox(
     "Species",

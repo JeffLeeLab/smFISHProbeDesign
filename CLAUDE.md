@@ -50,7 +50,7 @@ legacy/                     Archived upstream MATLAB / Python 2 code — ignore
 
 ## Streamlit app (`streamlit_app/`)
 
-`app.py` only builds the top nav (smFISH, HCR, Isoform Explorer, TransQuant, IDT Plate). Each page owns its own sidebar and widgets.
+`app.py` only builds the top nav (smFISH, HCR, Isoform Explorer, TransQuant, IDT Plate). Each page owns its own sidebar and widgets, and shows `ProbeDesign v<__version__>` under its sidebar header.
 
 | File | Purpose |
 |-|-|
@@ -77,11 +77,11 @@ TransQuant is pinned to a git tag in **three** places — bump all together: `en
    - **F** thermodynamic — badness is `inf`
    - **L** low-complexity, probe-level — homopolymer ≥ `--hp-threshold` (5) or dinucleotide repeat ≥ `--di-threshold` (3)
 3. DP picks placements minimising mean badness. Fixed length: start-position DP.
-4. Mixed length (`-l 18-22`): 2D badness `[pos][len]` (`calculate_badness_mixed()`), end-position DP over all lengths (`find_best_probes_mixed()`). F shows only where no length is finite. A single int `-l 20` runs the fixed-length path unchanged.
+4. Mixed length (`-l 18-22`): 2D badness `[pos][len]` (`calculate_badness_mixed()`), end-position DP over all lengths (`find_best_probes_mixed()`). F shows only where no length is finite. A single int `-l 20` (the default) runs the fixed-length path unchanged. Spacer defaults to 3 in both modes.
 
 ## HCR
 
-Each pair is two 25-nt halves with a 2-nt gap; the 52-nt block is the DP unit. The halves hybridise independently, so ΔG is per half: target −31, strict range −35 to −27. `--asymmetric-gibbs` lets one half go down to `--lenient-gibbs-min` (−42); `--asymmetric-bowtie` requires only one half to be bowtie-clean. There are 13 amplifiers (`AMPLIFIER_TABLE` in `hcr.py`). Always use `hcrdesign`, never `design -l 52`.
+Each pair is two 25-nt halves with a 2-nt gap; the 52-nt block is the DP unit. The halves hybridise independently, so ΔG is per half: target −31, strict range −35 to −27. `--asymmetric-gibbs` lets one half go down to `--lenient-gibbs-min` (−42); `--asymmetric-bowtie` requires only one half to be bowtie-clean. `--pair-spacing` (gap between blocks) defaults to 3. There are 13 amplifiers (`AMPLIFIER_TABLE` in `hcr.py`). Always use `hcrdesign`, never `design -l 52`.
 
 ## Masking setup
 
@@ -133,7 +133,7 @@ python -m pytest tests/
   - CLI command round trips and flag drift;
   - mask status, fingerprints and failures;
   - the header never showing a path.
-- The references predate the L mask. Tests pass `--hp-threshold 10 --di-threshold 10` (the maximum) to effectively switch it off; do the same when comparing by hand.
+- The references predate the L mask and the current defaults. Tests pass `--hp-threshold 10 --di-threshold 10` (the maximum) to effectively switch the L mask off, and `-l 20 -s 2` (`REFERENCE_PARAMS`); do the same when comparing by hand.
 - `mixed_length_test/` is an input only, with no reference. `EIF1_CDS_HCR/` uses the old single-52-mer approach and is not a reference for `hcrdesign`.
 - If bowtie isn't on `PATH`, masking prints a warning, records `FAILED` in the header and carries on unmasked. The tests put the interpreter's `bin/` on `PATH`. When running the CLI with the env's python directly, add `~/miniforge3/envs/probedesign/bin` yourself.
 

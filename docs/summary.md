@@ -371,7 +371,7 @@ The reference outputs predate the low-complexity (L) filter, so the commands bel
 | CDKN1A_32 | `probedesign design CDKN1A.fa --probes 32 --repeatmask-file CDKN1A_repeatmasked.fa --hp-threshold 10 --di-threshold 10` | Matches `CDKN1A_32_genomemaskoff_oligos.txt` (32/32) | **PASS** |
 | KRT19 | `probedesign design KRT19_withUTRs.fa --probes 32 --pseudogene-mask --genome-mask --hp-threshold 10 --di-threshold 10` | Matches `KRT19_withUTRs_oligos.txt` (6/6) | **PASS** |
 | mouseMITF | `probedesign design mouseMITF.fa --probes 24 --species mouse --pseudogene-mask --genome-mask --repeatmask-file mouseMITF_repeatmasked.fa --hp-threshold 10 --di-threshold 10` | Matches `mouseMITF_oligos.txt` (24/24) | **PASS** |
-| pytest | `python -m pytest tests/` | All pass | **PASS (112 tests: 38 HCR, 7 smFISH regression, 41 run header, 26 IDT plate)** |
+| pytest | `python -m pytest tests/` | All pass | **PASS (115 tests: 38 HCR, 9 smFISH regression, 42 run header, 26 IDT plate)** |
 
 `tests/regression/EIF1_CDS_HCR/` is an old single-52-mer design and was superseded by `probedesign hcrdesign` (see `probe_design_principles.md` §10).
 
@@ -424,7 +424,7 @@ streamlit run streamlit_app/app.py
 
 ### Verify Installation
 ```bash
-probedesign --version          # 0.1.0
+probedesign --version          # 0.2.0
 bowtie --version               # bowtie-align-s version 1.3.1
 ```
 

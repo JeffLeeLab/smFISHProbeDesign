@@ -42,6 +42,7 @@ from probedesign.output import (
     format_seq_content,
     format_hits_content,
 )
+from probedesign import __version__
 from probedesign.provenance import PASTED_INPUT_NAME
 
 
@@ -61,6 +62,7 @@ for key, default in {
 
 with st.sidebar:
     st.header("smFISH Probe Design")
+    st.caption(f"ProbeDesign v{__version__}")
 
     mode = st.radio(
         "Mode",
@@ -112,13 +114,13 @@ with st.sidebar:
                 min_value=10, max_value=60, value=22, step=1,
                 key="smfish_mixed_max",
             )
-        if mixed_min >= mixed_max:
-            st.warning("Min length must be less than max length.")
+        if mixed_min > mixed_max:
+            st.warning("Min length must not be greater than max length.")
         oligo_length = mixed_min
         mixed_lengths = (mixed_min, mixed_max)
     spacer_length = st.number_input(
         "Spacer length (bp)",
-        min_value=0, value=2, step=1,
+        min_value=0, value=3, step=1,
         key="smfish_spacer_length",
     )
     target_gibbs = st.number_input(

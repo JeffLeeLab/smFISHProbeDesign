@@ -118,7 +118,7 @@ There is **no hard prohibition on overlapping probes**. Instead, a minimum spaci
 minimum distance between probe starts = oligo_length + spacer_length
 ```
 
-With defaults (oligo_length=20, spacer_length=2), probe starts must be at least 22 bp apart. Since probes are 20 bp long, this creates a minimum 2 bp gap between consecutive probes.
+With defaults (oligo_length=20, spacer_length=3), probe starts must be at least 23 bp apart. Since probes are 20 bp long, this creates a minimum 3 bp gap between consecutive probes. Mixed-length mode enforces the same gap between one probe's end and the next probe's start (Section 7).
 
 **Code reference:** `src/probedesign/core.py` — `probe_spacer_len = oligo_len + spacer_len`
 
@@ -213,6 +213,7 @@ else:
 - The badness function is a **squared loss** — probes far from the target ΔG are penalized quadratically
 - `badness = inf` means the position is **completely excluded** (no probe can start here)
 - The F mask in the output file shows `F` at positions with `inf` badness, and the sequence character at positions with finite badness
+- In mixed-length mode each `(start, length)` cell is checked separately. The F line shows `F` only where **no** length in the range is acceptable, so an unmarked start may still have out-of-range lengths; the DP only ever picks a length whose own ΔG is in range
 
 **Code reference:** `src/probedesign/core.py` — `calculate_badness()`
 
@@ -539,7 +540,7 @@ With masking on, `_bowtie_pseudogene.txt` / `_bowtie_genome.txt` hold per-positi
 |-----------|---------|-------------|-------------|---------------|
 | Number of probes | 48 | `-n`, `--probes` | Target number of probes to design | `cli.py`, `core.py` |
 | Oligo length | 20 bp | `-l`, `--oligo-length` | Single length (e.g. `20`) or range for mixed-length mode (e.g. `18-22`, bounds 10–60) | `cli.py`, `core.py` |
-| Spacer length | 2 bp | `-s`, `--spacer-length` | Minimum gap between probe starts (added to oligo length) | `cli.py`, `core.py` |
+| Spacer length | 3 bp | `-s`, `--spacer-length` | Minimum gap between probe starts (added to oligo length) | `cli.py`, `core.py` |
 | Target ΔG | -23.0 kcal/mol | `-g`, `--target-gibbs` | Optimal Gibbs free energy for probe binding | `cli.py`, `core.py` |
 | Allowable ΔG range | -26, -20 kcal/mol | `--allowable-gibbs "min,max"` | Probes outside this range get `inf` badness | `cli.py`, `core.py` |
 | Output prefix | (input filename) | `-o`, `--output` | Base name for output files | `cli.py` |
@@ -606,7 +607,7 @@ Both initiator tails point inward toward the gap. The initiator and spacer seque
 
 ### Pair DP (`find_best_pairs()`)
 
-This is the same running-average DP as Section 7, applied to 52-nt blocks. Consecutive pair starts must be at least `52 + pair_spacing` apart (default spacing 2). Among the solutions it **maximises pair count first**, then minimises average badness.
+This is the same running-average DP as Section 7, applied to 52-nt blocks. Consecutive pair starts must be at least `52 + pair_spacing` apart (default spacing 3). Among the solutions it **maximises pair count first**, then minimises average badness.
 
 ### HCR Parameters
 
@@ -618,7 +619,7 @@ This is the same running-average DP as Section 7, applied to 52-nt blocks. Conse
 | Strict ΔG range | −35, −27 | `--allowable-gibbs` |
 | Asymmetric ΔG / lenient floor | off / −42.0 | `--asymmetric-gibbs`, `--lenient-gibbs-min` |
 | Asymmetric bowtie | off | `--asymmetric-bowtie` |
-| Pair spacing | 2 | `--pair-spacing` |
+| Pair spacing | 3 | `--pair-spacing` |
 | Masking, L-mask thresholds | as smFISH | `--species`, `--pseudogene-mask`, `--genome-mask`, `--repeatmask-file`, `--hp-threshold`, `--di-threshold` |
 | WW spacer resolution | none (IUPAC) | `--resolve-spacer` |
 

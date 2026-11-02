@@ -321,7 +321,7 @@ check_partial() { local msg="$1"; echo -e "${YELLOW}${msg}${NC}"; ((FAIL++)) || 
 
 # ── Test A: probedesign version ───────────────────────────────────────────────
 echo -n "  [A] probedesign command works … "
-if run_in_env probedesign --version 2>&1 | grep -q "0.1.0"; then
+if run_in_env probedesign --version 2>&1 | grep -q "probedesign, version"; then
     check_pass
 else
     check_fail

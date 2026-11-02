@@ -192,7 +192,7 @@ conda activate probedesign
 python --version           # Python 3.11.x
 bowtie --version           # bowtie-align-s version 1.3.1
 streamlit --version        # 1.x.x
-probedesign --version      # 0.1.0
+probedesign --version      # 0.2.0
 ```
 
 **Verify bowtie index auto-detection:**

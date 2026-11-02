@@ -225,7 +225,7 @@ def calculate_pair_badness(
 
 def find_best_pairs(
     pair_badness: List[float],
-    pair_spacing: int = 2,
+    pair_spacing: int = 3,
     n_pairs: int = 30,
 ) -> Tuple[float, List[int]]:
     """Find optimal pair positions using dynamic programming.
@@ -363,7 +363,7 @@ def design_hcr_probes(
     asymmetric_gibbs: bool = False,
     lenient_gibbs_min: float = -42.0,
     asymmetric_bowtie: bool = False,
-    pair_spacing: int = 2,
+    pair_spacing: int = 3,
     species: str = "human",
     pseudogene_mask: bool = False,
     genome_mask: bool = False,

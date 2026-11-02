@@ -2,7 +2,9 @@
 
 The reference outputs in tests/regression/ predate the low-complexity "L"
 mask, so every comparison against them passes hp_threshold=10 and
-di_threshold=10 to switch that filter off. Probe sets are compared as sorted
+di_threshold=10 to switch that filter off. They were also designed with a
+2-nt spacer (the default before 3), so those comparisons pass
+REFERENCE_PARAMS. Probe sets are compared as sorted
 lists of sequences (the second-to-last column of a *_oligos.txt file), the
 same way setup_all.sh does.
 
@@ -44,6 +46,9 @@ HUMAN_GENOME_INDEX = "GCA_000001405.15_GRCh38_no_alt_analysis_set"
 
 # Switches the L (low-complexity) mask off so results match the old references
 NO_L_MASK = {"hp_threshold": 10, "di_threshold": 10}
+
+# Spacer the references were designed with
+REFERENCE_PARAMS = {"spacer_length": 2}
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -109,6 +114,7 @@ def test_cdkn1a_matches_reference():
         str(CDKN1A_FA),
         n_probes=32,
         repeatmask_file=str(CDKN1A_REPEATMASKED),
+        **REFERENCE_PARAMS,
         **NO_L_MASK,
     )
     assert len(result.probes) == 32
@@ -121,6 +127,7 @@ def test_cdkn1a_cli_writes_outputs_matching_reference(tmp_path):
     result = CliRunner().invoke(main, [
         "design", str(CDKN1A_FA),
         "--probes", "32",
+        "--spacer-length", "2",
         "--repeatmask-file", str(CDKN1A_REPEATMASKED),
         "--hp-threshold", "10",
         "--di-threshold", "10",
@@ -197,6 +204,22 @@ def test_mixed_length_with_equal_bounds_equals_fixed_length():
     assert mixed.score == pytest.approx(fixed.score)
 
 
+def test_default_is_fixed_20_with_spacer_3():
+    """With no length given, probes are all 20 nt and at least 3 nt apart."""
+    result = design_probes(str(MIXED_FA), n_probes=20)
+    assert result.run_info["params"]["mixed_lengths"] is None
+    probes = result.probes
+    assert probes and all(p.length == 20 for p in probes)
+    for left, right in zip(probes, probes[1:]):
+        assert right.position - (left.position + left.length) >= 3
+
+
+def test_mixed_lengths_min_above_max_is_an_error():
+    """An inverted range raises instead of silently finding no probes."""
+    with pytest.raises(ValueError, match="greater than max"):
+        design_probes(str(MIXED_FA), mixed_lengths=(22, 18))
+
+
 # ── Bowtie masking (skipped when bowtie / indices are unavailable) ───────────
 
 def test_krt19_pseudogene_and_genome_masks_match_reference(human_indices):
@@ -207,6 +230,7 @@ def test_krt19_pseudogene_and_genome_masks_match_reference(human_indices):
         pseudogene_mask=True,
         genome_mask=True,
         index_dir=human_indices,
+        **REFERENCE_PARAMS,
         **NO_L_MASK,
     )
     # Masking failures only warn (missing bowtie) or give all-zero hits (bad
@@ -232,6 +256,7 @@ def test_mouse_mitf_pseudogene_and_genome_masks_match_reference(mouse_indices):
         genome_mask=True,
         repeatmask_file=str(MOUSE_MITF_DIR / "mouseMITF_repeatmasked.fa"),
         index_dir=mouse_indices,
+        **REFERENCE_PARAMS,
         **NO_L_MASK,
     )
     assert any(result.bowtie_pseudogene_hits or [])

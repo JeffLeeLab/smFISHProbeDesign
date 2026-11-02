@@ -13,6 +13,11 @@ from __future__ import annotations
 
 import streamlit as st
 
+from probedesign import __version__
+
+st.sidebar.header("TransQuant")
+st.sidebar.caption(f"ProbeDesign v{__version__}")
+
 try:
     from transquant_w.ui import render
 except ImportError:

@@ -181,7 +181,7 @@ streamlit run streamlit_app/app.py
 | Species | human | Genome/pseudogene database |
 | Number of probes | 48 | Target probe count (no upper limit) |
 | Oligo length mode | Fixed (20 bp) | Fixed length or mixed range (e.g. 18-22 bp); 10–60 bp |
-| Spacer length | 2 bp | Minimum gap between probes (no upper limit) |
+| Spacer length | 3 bp | Minimum gap between probes (no upper limit) |
 | Target Gibbs FE | −23.0 kcal/mol | Optimal binding free energy |
 | Allowable Gibbs range | −26 to −20 | Probes outside this are excluded |
 | Homopolymer / Dinucleotide repeats | 5 / 3 | Low-complexity (L-mask) thresholds, 3–10 |
@@ -203,7 +203,7 @@ The **HCR** tab designs HCR v3 split-initiator probe pairs. Each pair is two 25-
 |-----------|---------|-------------|
 | Amplifier | B1 | B1–B5, B7, B9–B11, B13–B15, B17 (B7+ use a `WW` degenerate spacer) |
 | Number of pairs | 30 | Target pair count |
-| Pair spacing | 2 nt | Minimum gap between consecutive 52-nt pair blocks |
+| Pair spacing | 3 nt | Minimum gap between consecutive 52-nt pair blocks |
 | Target ΔG per half | −31.0 kcal/mol | Optimal binding free energy per half |
 | Strict ΔG range | −35 to −27 | Range each half must satisfy |
 | Asymmetric ΔG leniency | off | Let one half go down to the **Lenient ΔG floor** (−42) |
@@ -268,7 +268,7 @@ Options:
   -l, --oligo-length TEXT         Oligo length: single int (e.g. 20) or range
                                   for mixed lengths (e.g. 18-22; range bounds
                                   10-60)  [default: 20]
-  -s, --spacer-length INTEGER     Minimum gap between probes  [default: 2]
+  -s, --spacer-length INTEGER     Minimum gap between probes  [default: 3]
   -g, --target-gibbs FLOAT        Target Gibbs free energy in kcal/mol  [default: -23]
   --allowable-gibbs TEXT          Allowable Gibbs FE range as min,max  [default: -26,-20]
   -o, --output TEXT               Output file prefix (default: derived from input filename)
@@ -309,7 +309,7 @@ Options:
   --asymmetric-gibbs              One half strict, one lenient
   --lenient-gibbs-min FLOAT       Floor ΔG for the lenient half  [default: -42.0]
   --asymmetric-bowtie             Require only one half to be bowtie-clean
-  --pair-spacing INTEGER          Minimum gap between 52-nt pair blocks  [default: 2]
+  --pair-spacing INTEGER          Minimum gap between 52-nt pair blocks  [default: 3]
   -s, --species [human|mouse|elegans|drosophila|rat]
                                   Species for masking databases  [default: human]
   --pseudogene-mask / --no-pseudogene-mask   [default: off]
