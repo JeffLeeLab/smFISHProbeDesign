@@ -6,7 +6,7 @@
 # Sets up the ProbeDesign environment, installs all packages, builds/downloads
 # bowtie indices, and runs validation tests.
 #
-# Supports: micromamba · mamba · conda  (auto-detected in that order)
+# Supports: mamba · conda  (auto-detected in that order; Miniforge has both)
 # Platforms: macOS (Intel & Apple Silicon), Linux (x86_64 & aarch64)
 # Windows:   use WSL2 to run this script (see README.md)
 #
@@ -17,7 +17,7 @@
 #   ./setup_all.sh --help
 #
 # Prerequisites:
-#   - micromamba OR mamba OR conda installed
+#   - mamba OR conda installed (Miniforge recommended)
 #   - ~8 GB free disk  (84 MB pseudogene indices + 6.7 GB genome indices)
 # ==============================================================================
 
@@ -60,16 +60,14 @@ for arg in "$@"; do
 done
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SECTION 0 — Detect package manager (micromamba > mamba > conda)
+# SECTION 0 — Detect package manager (mamba > conda)
 # ══════════════════════════════════════════════════════════════════════════════
 
 echo ""
 echo -e "${CYAN}Detecting conda package manager…${NC}"
 
 CONDA_CMD=""
-if command -v micromamba &>/dev/null; then
-    CONDA_CMD="micromamba"
-elif command -v mamba &>/dev/null; then
+if command -v mamba &>/dev/null; then
     CONDA_CMD="mamba"
 elif command -v conda &>/dev/null; then
     CONDA_CMD="conda"
@@ -109,31 +107,30 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
-# Check if environment already exists
+# Check if environment already exists. Resolving the name with `run -n` works
+# for both tools; `mamba env list` (mamba 2) indents its rows, so grepping its
+# output for "^probedesign" never matches.
 ENV_EXISTS=false
-if "$CONDA_CMD" env list 2>/dev/null | grep -qE "^${ENV_NAME}[[:space:]]"; then
+if "$CONDA_CMD" run -n "$ENV_NAME" true &>/dev/null; then
     ENV_EXISTS=true
+fi
+
+# mamba asks for confirmation unless told yes; conda's env commands don't ask
+YES_FLAG=""
+if [ "$CONDA_CMD" = "mamba" ]; then
+    YES_FLAG="-y"
 fi
 
 if $ENV_EXISTS; then
     echo -e "${YELLOW}Environment '${ENV_NAME}' already exists.${NC}"
     echo -e "${YELLOW}Updating it from environment.yml (missing packages will be added)…${NC}"
     echo ""
-    # Update existing environment
-    if [ "$CONDA_CMD" = "micromamba" ]; then
-        micromamba env update -n "$ENV_NAME" -f "$ENV_FILE" --prune -y
-    else
-        "$CONDA_CMD" env update -n "$ENV_NAME" -f "$ENV_FILE" --prune
-    fi
+    "$CONDA_CMD" env update -n "$ENV_NAME" -f "$ENV_FILE" --prune $YES_FLAG
 else
     echo "Creating environment '${ENV_NAME}' from ${ENV_FILE}…"
     echo "(This downloads ~500 MB of packages — a few minutes on first run)"
     echo ""
-    if [ "$CONDA_CMD" = "micromamba" ]; then
-        micromamba env create -f "$ENV_FILE" -y
-    else
-        "$CONDA_CMD" env create -f "$ENV_FILE"
-    fi
+    "$CONDA_CMD" env create -f "$ENV_FILE" $YES_FLAG
 fi
 
 echo ""

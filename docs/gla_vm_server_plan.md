@@ -1,6 +1,6 @@
 # Glasgow VM Server — Deployment Plan
 
-> **Status**: Deployed (`3d8a62c`, 2026-02-20). This is a record of the VM setup as it was done, so the live server may have drifted from it. Updates are manual (see *Updating the App*); `git -C ~/Github/smFISHProbeDesign log --oneline -1` on the VM shows the commit it is on. The VM uses **micromamba** (`~/micromamba`), and the systemd and SELinux paths below depend on it, so it is kept deliberately. `setup_all.sh` still detects micromamba first. For local installs, use mamba/conda as in the README.
+> **Status**: Deployed (`3d8a62c`, 2026-02-20). This is a record of the VM setup as it was done, so the live server may have drifted from it. Updates are manual (see *Updating the App*); `git -C ~/Github/smFISHProbeDesign log --oneline -1` on the VM shows the commit it is on. The VM is moving from micromamba to **Miniforge** (`~/miniforge3`, 2026-11-02), and `setup_all.sh` no longer supports micromamba. Until this doc is updated, read the micromamba paths and commands below as `~/miniforge3/envs/probedesign`, `conda activate` and `mamba`.
 
 Deploy the smFISHProbeDesign Streamlit app on an Oracle Linux 9.6 university VM.
 
@@ -591,7 +591,7 @@ git pull origin master
 sudo systemctl restart probedesign
 ```
 
-The setup script updates the env from `environment.yml`, reinstalls the package (`pip install -e .`) and reinstalls TransQuant at its pinned tag, which `micromamba env update` alone doesn't reliably do. It skips indices that are already built and ends with its quick checks. `--skip-genome` skips only the genome download and the genome checks: the indices are already in place, and the genome-mask check needs ~3.5 GB of RAM, which would compete with the running app. It takes a few minutes; run it inside `screen` (Step 5) if your connection might drop.
+The setup script updates the env from `environment.yml`, reinstalls the package (`pip install -e .`) and reinstalls TransQuant at its pinned tag, which an env update alone doesn't reliably do. It skips indices that are already built and ends with its quick checks. `--skip-genome` skips only the genome download and the genome checks: the indices are already in place, and the genome-mask check needs ~3.5 GB of RAM, which would compete with the running app. It takes a few minutes; run it inside `screen` (Step 5) if your connection might drop.
 
 **3. Check the app came back:**
 
