@@ -31,6 +31,7 @@ from utils import (
     HCRBatchResult,
     clean_name_for_prefix,
     extract_first_fasta_header,
+    mask_warnings,
 )
 from probedesign.hcr_output import (
     format_hcr_oligos,
@@ -38,6 +39,7 @@ from probedesign.hcr_output import (
     format_hcr_hits,
 )
 from probedesign.hcr import VALID_AMPLIFIERS
+from probedesign.provenance import PASTED_INPUT_NAME
 
 
 # ── Session state initialization ─────────────────────────────────────────────
@@ -259,6 +261,13 @@ def _resolve_repeatmask_file():
     return None
 
 
+def _repeatmask_upload_name():
+    """The uploaded repeat-mask file's own name, for the run header."""
+    if rm_mode_key == "file" and repeatmask_upload is not None:
+        return repeatmask_upload.name
+    return None
+
+
 def _show_hcr_results():
     run_result = st.session_state.get("hcr_single_result")
     if run_result is None:
@@ -266,6 +275,9 @@ def _show_hcr_results():
 
     if run_result.error:
         st.error(run_result.error)
+
+    for warning in mask_warnings(run_result.result):
+        st.warning(warning)
 
     if run_result.stdout_log.strip():
         with st.expander("Design log"):
@@ -391,6 +403,7 @@ if mode == "Single sequence":
 
         input_path = None
         auto_name = None
+        input_name = None
 
         if run_from_upload:
             if uploaded_file is None:
@@ -400,6 +413,7 @@ if mode == "Single sequence":
             st.session_state["hcr_temp_files"].append(tmp_path)
             input_path = str(tmp_path)
             auto_name = clean_name_for_prefix(Path(uploaded_file.name).stem)
+            input_name = uploaded_file.name
         else:
             if not pasted_text.strip():
                 st.warning("Please paste a FASTA sequence.")
@@ -413,6 +427,7 @@ if mode == "Single sequence":
             input_path = str(tmp_path)
             header = extract_first_fasta_header(pasted_text)
             auto_name = clean_name_for_prefix(header) if header else "probe"
+            input_name = PASTED_INPUT_NAME
 
         rm_file = _resolve_repeatmask_file()
         if rm_file == "__STOP__":
@@ -439,6 +454,8 @@ if mode == "Single sequence":
                 genome_mask=genome_mask_on,
                 index_dir=index_dir,
                 repeatmask_file=rm_file,
+                input_name=input_name,
+                repeatmask_name=_repeatmask_upload_name(),
                 repeatmask_mode=rm_mode_key,
                 hp_threshold=hp_threshold,
                 di_threshold=di_threshold,
@@ -504,6 +521,7 @@ else:
 
         fasta_paths = []
         batch_name_overrides = {}
+        batch_input_names = {}
         if input_method == "Directory path":
             if not input_dir_path or not Path(input_dir_path).is_dir():
                 st.error(f"Directory not found: {input_dir_path}")
@@ -521,6 +539,7 @@ else:
                 st.session_state["hcr_temp_files"].append(tmp)
                 fasta_paths.append(tmp)
                 batch_name_overrides[tmp] = clean_name_for_prefix(Path(uf.name).stem)
+                batch_input_names[tmp] = uf.name
 
         rm_file = _resolve_repeatmask_file()
         if rm_file == "__STOP__":
@@ -544,6 +563,7 @@ else:
             "index_dir": index_dir,
             "repeatmask_mode": rm_mode_key,
             "repeatmask_file": rm_file,
+            "repeatmask_name": _repeatmask_upload_name(),
             "hp_threshold": hp_threshold,
             "di_threshold": di_threshold,
             "resolve_spacer": resolve_spacer,
@@ -567,6 +587,7 @@ else:
             params=params,
             progress_callback=_progress_cb,
             name_overrides=batch_name_overrides if batch_name_overrides else None,
+            input_names=batch_input_names or None,
         )
 
         progress_bar.progress(1.0, text="Batch complete!")
@@ -587,8 +608,15 @@ else:
                 "Score": f"{br.score:.4f}" if br.score != float('inf') else "N/A",
                 "Status": br.status,
                 "Error": br.error_msg or "",
+                "Warnings": "; ".join(mask_warnings(br.result)),
             })
         df = pd.DataFrame(summary_data)
+        masking_failed = [br.filename for br in batch_results if mask_warnings(br.result)]
+        if masking_failed:
+            st.warning(
+                "Masking failed and was not applied for: "
+                + ", ".join(masking_failed) + ". See the Warnings column."
+            )
         st.dataframe(df, width='stretch', hide_index=True)
 
         zip_bytes = package_hcr_batch_results_zip(batch_results)

@@ -24,29 +24,42 @@ from probedesign.hcr_output import (
     format_hcr_seq,
     format_hcr_hits,
 )
-from probedesign.masking import find_bowtie, find_repeatmasker, run_repeatmasker
-
-
-# --- Species-to-index maps (mirrors masking.py) ---
-
-PSEUDO_DB = {
-    "human": "humanPseudo",
-    "mouse": "mousePseudo",
-    "elegans": "celegansPseudo",
-    "drosophila": "drosophilaPseudo",
-    "rat": "ratPseudo",
-}
-
-GENOME_DB = {
-    "human": "GCA_000001405.15_GRCh38_no_alt_analysis_set",
-    "mouse": "mm10",
-    "elegans": "celegans",
-    "drosophila": "drosophila",
-    "rat": "rat",
-}
+from probedesign.provenance import failed_masks
+from probedesign.masking import (
+    GENOME_INDEXES,
+    PSEUDOGENE_INDEXES,
+    find_bowtie,
+    find_repeatmasker,
+    run_repeatmasker,
+)
 
 
 # --- Name helpers ---
+
+
+def mask_warnings(result) -> List[str]:
+    """One message per requested bowtie mask that failed and was not applied."""
+    if result is None:
+        return []
+    names = {"P": "Pseudogene", "B": "Genome"}
+    return [
+        f"{names.get(m.letter, m.letter)} masking failed and was not applied: {m.error}"
+        for m in failed_masks(result)
+    ]
+
+
+def _label_run_info(result, input_name, repeatmask_mode, repeatmask_name) -> None:
+    """Swap temp-file names in result.run_info for the names the user knows."""
+    if not result.run_info:
+        return
+    if input_name:
+        result.run_info["input_name"] = input_name
+    if repeatmask_mode == "auto":
+        # design saw RepeatMasker's temp output as a plain repeat-mask file
+        result.run_info["repeatmask_mode"] = "auto"
+        result.run_info["repeatmask_name"] = None
+    elif repeatmask_name:
+        result.run_info["repeatmask_name"] = repeatmask_name
 
 
 def clean_name_for_prefix(name: str) -> str:
@@ -236,7 +249,7 @@ def check_prerequisites(
             status.index_dir_exists = True
 
             if pseudogene_mask:
-                db_name = PSEUDO_DB.get(species.lower(), "")
+                db_name = PSEUDOGENE_INDEXES.get(species.lower(), "")
                 if db_name:
                     d = Path(index_dir)
                     if not (d / f"{db_name}.1.ebwt").exists() and not (d / f"{db_name}.1.bt2").exists():
@@ -245,7 +258,7 @@ def check_prerequisites(
                         )
 
             if genome_mask:
-                db_name = GENOME_DB.get(species.lower(), "")
+                db_name = GENOME_INDEXES.get(species.lower(), "")
                 if db_name:
                     d = Path(index_dir)
                     if not (d / f"{db_name}.1.ebwt").exists() and not (d / f"{db_name}.1.bt2").exists():
@@ -294,6 +307,8 @@ def run_design(
     mixed_lengths: Optional[Tuple[int, int]] = None,
     hp_threshold: int = 5,
     di_threshold: int = 3,
+    input_name: Optional[str] = None,
+    repeatmask_name: Optional[str] = None,
 ) -> DesignRunResult:
     """Run probe design, replicating the CLI orchestration logic.
 
@@ -301,6 +316,9 @@ def run_design(
     2. Calls design_probes() with the resolved repeatmask_file.
     3. Captures stdout (design_probes prints progress messages).
     4. Catches all exceptions and returns them as error string.
+
+    input_name / repeatmask_name are the names the user knows (upload names);
+    they replace the temp-file names in the result's run_info header.
 
     Returns:
         DesignRunResult with either result or error populated.
@@ -338,6 +356,7 @@ def run_design(
                 hp_threshold=hp_threshold,
                 di_threshold=di_threshold,
             )
+        _label_run_info(result, input_name, repeatmask_mode, repeatmask_name)
 
         if not result.probes:
             return DesignRunResult(
@@ -391,6 +410,7 @@ def run_batch(
     params: dict = None,
     progress_callback: Optional[Callable] = None,
     name_overrides: Optional[Dict[Path, str]] = None,
+    input_names: Optional[Dict[Path, str]] = None,
 ) -> List[BatchResult]:
     """Run probe design on a list of FASTA files.
 
@@ -404,6 +424,8 @@ def run_batch(
             no files are written to disk.
         params: Dict of design parameters (passed to run_design)
         progress_callback: Optional callable(current_index, total, filename)
+        name_overrides: Optional dict mapping Path -> output name
+        input_names: Optional dict mapping Path -> upload name (for run_info)
 
     Returns:
         List of BatchResult for summary table.
@@ -440,6 +462,8 @@ def run_batch(
             mixed_lengths=params.get("mixed_lengths"),
             hp_threshold=params.get("hp_threshold", 5),
             di_threshold=params.get("di_threshold", 3),
+            input_name=(input_names or {}).get(fasta_path),
+            repeatmask_name=params.get("repeatmask_name"),
         )
 
         if run_result.result is not None and run_result.result.probes:
@@ -477,7 +501,7 @@ def run_batch(
 def format_batch_summary(results: List[BatchResult]) -> str:
     """Format batch results as a TSV summary string.
 
-    Columns: Filename, Probes_Found, Score, Status, Error
+    Columns: Filename, Probes_Found, Score, Status, Error, Warnings
 
     Args:
         results: List of BatchResult from run_batch
@@ -485,11 +509,12 @@ def format_batch_summary(results: List[BatchResult]) -> str:
     Returns:
         TSV-formatted summary string
     """
-    lines = ["Filename\tProbes_Found\tScore\tStatus\tError"]
+    lines = ["Filename\tProbes_Found\tScore\tStatus\tError\tWarnings"]
     for br in results:
         score_str = f"{br.score:.4f}" if br.score != float('inf') else "N/A"
         error_str = br.error_msg or ""
-        lines.append(f"{br.filename}\t{br.n_probes_found}\t{score_str}\t{br.status}\t{error_str}")
+        warnings = "; ".join(mask_warnings(br.result))
+        lines.append(f"{br.filename}\t{br.n_probes_found}\t{score_str}\t{br.status}\t{error_str}\t{warnings}")
     return "\n".join(lines) + "\n"
 
 
@@ -593,10 +618,12 @@ def run_hcr_design(
     resolve_spacer: Optional[str] = None,
     output_name: Optional[str] = None,
     save_bowtie_raw: bool = False,
+    input_name: Optional[str] = None,
+    repeatmask_name: Optional[str] = None,
 ) -> HCRDesignRunResult:
     """Run HCR probe design with stdout capture and error handling.
 
-    Analogous to run_design() for smFISH.
+    Analogous to run_design() for smFISH, including input_name / repeatmask_name.
 
     Returns:
         HCRDesignRunResult with either result or error populated.
@@ -635,6 +662,7 @@ def run_hcr_design(
                 output_name=output_name,
                 save_bowtie_raw=save_bowtie_raw,
             )
+        _label_run_info(result, input_name, repeatmask_mode, repeatmask_name)
 
         if not result.pairs:
             return HCRDesignRunResult(
@@ -674,6 +702,7 @@ def run_hcr_batch(
     params: dict = None,
     progress_callback: Optional[Callable] = None,
     name_overrides: Optional[Dict[Path, str]] = None,
+    input_names: Optional[Dict[Path, str]] = None,
 ) -> List[HCRBatchResult]:
     """Run HCR probe design on a list of FASTA files.
 
@@ -685,6 +714,7 @@ def run_hcr_batch(
         params: Dict of HCR design parameters
         progress_callback: Optional callable(current_index, total, filename)
         name_overrides: Optional dict mapping Path -> output name
+        input_names: Optional dict mapping Path -> upload name (for run_info)
 
     Returns:
         List of HCRBatchResult
@@ -725,6 +755,8 @@ def run_hcr_batch(
             resolve_spacer=params.get("resolve_spacer"),
             output_name=resolved_output_name,
             save_bowtie_raw=params.get("save_bowtie_raw", False),
+            input_name=(input_names or {}).get(fasta_path),
+            repeatmask_name=params.get("repeatmask_name"),
         )
 
         if run_result.result is not None and run_result.result.pairs:
@@ -760,11 +792,12 @@ def run_hcr_batch(
 
 def format_hcr_batch_summary(results: List[HCRBatchResult]) -> str:
     """Format HCR batch results as a TSV summary string."""
-    lines = ["Filename\tPairs_Found\tScore\tStatus\tError"]
+    lines = ["Filename\tPairs_Found\tScore\tStatus\tError\tWarnings"]
     for br in results:
         score_str = f"{br.score:.4f}" if br.score != float('inf') else "N/A"
         error_str = br.error_msg or ""
-        lines.append(f"{br.filename}\t{br.n_pairs_found}\t{score_str}\t{br.status}\t{error_str}")
+        warnings = "; ".join(mask_warnings(br.result))
+        lines.append(f"{br.filename}\t{br.n_pairs_found}\t{score_str}\t{br.status}\t{error_str}\t{warnings}")
     return "\n".join(lines) + "\n"
 
 
