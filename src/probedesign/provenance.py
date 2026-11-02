@@ -24,6 +24,7 @@ from .masking import (
     GENOME_ASSEMBLIES,
     GENOME_INDEXES,
     PSEUDOGENE_INDEXES,
+    BowtieError,
     bowtie_version,
     index_fingerprint,
 )
@@ -102,27 +103,40 @@ def new_run_info(
     }
 
 
+def _failure_reason(error: BaseException) -> str:
+    """Why a mask failed, without paths: the header may be read on another machine.
+
+    BowtieError, "could not find bowtie" and unknown-species messages carry no
+    paths; for anything else only the exception type is given (the full
+    message is in the design log).
+    """
+    lines = str(error).strip().splitlines()
+    text = lines[0] if lines else ""
+    if isinstance(error, (BowtieError, ValueError)) or text.startswith("Could not find bowtie"):
+        return text[:200] or type(error).__name__
+    return f"{type(error).__name__} (details in the design log)"
+
+
 def bowtie_mask_record(
     letter: str,
     species: str,
     index_dir: Optional[Path],
     error: Optional[BaseException] = None,
 ) -> MaskRecord:
-    """Describe a pseudogene ("P") or genome ("B") mask that ran or failed."""
-    species = species.lower()
+    """Describe a pseudogene ("P") or genome ("B") mask that ran or failed.
+
+    Called from the design's except blocks, so it must not raise.
+    """
+    species = str(species).lower()
     table = PSEUDOGENE_INDEXES if letter == "P" else GENOME_INDEXES
     index = table.get(species, "?")
-    message = None
-    if error is not None:
-        lines = str(error).strip().splitlines()
-        message = (lines[0] if lines else type(error).__name__)[:200]
     return MaskRecord(
         letter=letter,
         status="failed" if error is not None else "applied",
         index=index,
         assembly=GENOME_ASSEMBLIES.get(species) if letter == "B" else None,
         fingerprint=index_fingerprint(index_dir, index),
-        error=message,
+        error=_failure_reason(error) if error is not None else None,
     )
 
 
@@ -210,14 +224,13 @@ def build_command(result) -> str:
     if (p["pseudogene_mask"] or p["genome_mask"]) and display_index_dir(info["index_dir"]) != "default":
         parts.append(_option("--index-dir", info["index_dir"]))
 
-    note = ""
     if info["repeatmask_mode"] == "file":
         parts.append(_option("--repeatmask-file", info["repeatmask_name"]))
     elif info["repeatmask_mode"] == "auto":
         if hcr:
             # hcrdesign has no --repeatmask: pass RepeatMasker's output instead
+            # (format_header adds a note saying so)
             parts.append(_option("--repeatmask-file", f"{info['input_name']}.masked"))
-            note = "   (run RepeatMasker first: hcrdesign has no --repeatmask)"
         else:
             parts.append("--repeatmask")
 
@@ -229,7 +242,7 @@ def build_command(result) -> str:
     if result.template_name != Path(info["input_name"]).stem:
         parts.append(_option("--output", result.template_name))
 
-    return " ".join(parts) + note
+    return " ".join(parts)
 
 
 # ── Header ───────────────────────────────────────────────────────────────────
@@ -274,19 +287,30 @@ def _coverage(result) -> str:
     return "  ".join(parts) or "none"
 
 
-def format_header(result) -> str:
-    """'#' header for _seq.txt / _HCR_seq.txt; '' if the result has no run_info."""
+def format_header(result, drawn_kinds: Optional[List[str]] = None) -> str:
+    """'#' header for _seq.txt / _HCR_seq.txt; '' if the result has no run_info.
+
+    drawn_kinds is the mask letters of the lines the overlay below actually
+    shows, for the block description (default: all of result.mask_kinds).
+    """
     info = result.run_info
     if not info:
         return ""
+    if drawn_kinds is None:
+        drawn_kinds = result.mask_kinds
     p = info["params"]
     hcr = info["tool"] == "HCR"
     git = info["git"] or "unknown"
     entries = info["n_entries"]
 
     lines = [
-        f"# ProbeDesign {info['version']} (git {git}) · {info['tool']} · {info['timestamp']}",
+        f"# ProbeDesign {info['version']} (git {git}) | {info['tool']} | {info['timestamp']}",
         f"# command: {build_command(result)}",
+    ]
+    if hcr and info["repeatmask_mode"] == "auto":
+        lines.append(_line("command note", f"run RepeatMasker on {info['input_name']} first; "
+                                            "hcrdesign has no --repeatmask"))
+    lines += [
         _line(),
         "# == Input ==",
         _line("file", "pasted sequence" if info["input_name"] == PASTED_INPUT_NAME else info["input_name"]),
@@ -341,7 +365,7 @@ def format_header(result) -> str:
     found = len(result.pairs) if hcr else len(result.probes)
     wanted = p["n_pairs"] if hcr else p["n_probes"]
     score = f"{result.score:.4f}" if math.isfinite(result.score) else "n/a"
-    masks = ", ".join(f"{kind} mask" for kind in result.mask_kinds)
+    masks = ", ".join(f"{kind} mask" for kind in drawn_kinds)
     block = (f"position, sequence, {masks}, pairs, labels" if hcr
              else f"sequence, {masks}, probes, labels").replace(", , ", ", ")
     lines += [

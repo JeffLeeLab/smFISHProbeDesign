@@ -112,9 +112,10 @@ def find_bowtie() -> str:
     """Find the bowtie executable.
 
     Searches in order:
-    1. conda/mamba environment (if active)
+    1. PATH (e.g. the conda/mamba environment)
     2. /usr/bin/bowtie
     3. BOWTIEHOME environment variable
+    4. ~/bowtie/bowtie
 
     Returns:
         Path to bowtie executable
@@ -123,16 +124,9 @@ def find_bowtie() -> str:
         FileNotFoundError: If bowtie cannot be found
     """
     # Check if in PATH (e.g., conda environment)
-    try:
-        result = subprocess.run(
-            ["which", "bowtie"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        return result.stdout.strip()
-    except subprocess.CalledProcessError:
-        pass
+    on_path = shutil.which("bowtie")
+    if on_path:
+        return on_path
 
     # Check common locations
     locations = [
@@ -142,7 +136,7 @@ def find_bowtie() -> str:
     ]
 
     for loc in locations:
-        if os.path.exists(loc):
+        if os.path.isfile(loc) and os.access(loc, os.X_OK):
             return loc
 
     raise FileNotFoundError(
@@ -178,13 +172,16 @@ def index_fingerprint(index_dir: Optional[Path], database: str) -> Optional[str]
 
     The .3 file (a few KB) holds the reference layout, so two indices built
     from the same reference share it. Returns the first 12 hex digits, or
-    None if neither <database>.3.ebwt nor <database>.3.bt2 exists.
+    None if neither <database>.3.ebwt nor <database>.3.bt2 exists or is readable.
     """
     index_dir = Path(index_dir) if index_dir else DEFAULT_INDEX_DIR
     for ext in ("ebwt", "bt2"):
         path = index_dir / f"{database}.3.{ext}"
         if path.is_file():
-            return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+            try:
+                return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+            except OSError:
+                return None
     return None
 
 

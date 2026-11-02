@@ -295,7 +295,8 @@ def format_seq_content(
         output_lines.append("")
 
     body = "\n".join(output_lines) + "\n" if output_lines else ""
-    return format_header(result) + body
+    drawn = [k for k, m in zip(result.mask_kinds, result.mask_strings) if m] if mask_seqs else []
+    return format_header(result, drawn_kinds=drawn) + body
 
 
 def format_hits_content(result: ProbeDesignResult) -> Dict[str, str]:
